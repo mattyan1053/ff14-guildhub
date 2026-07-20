@@ -1,5 +1,6 @@
 export interface Env {
   readonly discordToken: string;
+  readonly discordDevGuildId: string | null;
   readonly database: {
     readonly dialect: "sqlite";
     readonly filePath: string;
@@ -32,6 +33,8 @@ export function loadEnv(
     );
   }
 
+  const discordDevGuildId = source.DISCORD_DEV_GUILD_ID?.trim() || null;
+
   const dialect = source.DATABASE_DIALECT?.trim() || "sqlite";
   if (dialect !== "sqlite") {
     issues.push(`DATABASE_DIALECT must be "sqlite" (got: ${dialect})`);
@@ -58,6 +61,7 @@ export function loadEnv(
 
   return {
     discordToken,
+    discordDevGuildId,
     database: { dialect: "sqlite", filePath },
   };
 }

@@ -1,13 +1,15 @@
 import { sql } from "kysely";
 import type {
+  ScheduleEventListItem,
   ScheduleRepository,
   UpsertResponseInput,
 } from "../../../application/schedule/ports/scheduleRepository.js";
 import type {
+  EventStatus,
   Response,
   ScheduleEvent,
 } from "../../../domain/schedule/scheduleEvent.js";
-import type { AppDatabase } from "../../database/connection.js";
+import type { AppDatabase, DatabaseSchema } from "../../database/connection.js";
 import {
   toCandidateRows,
   toDomainEvent,
@@ -15,6 +17,25 @@ import {
   toEventRow,
   toResponseOptionRows,
 } from "./mappers.js";
+
+async function loadEvent(
+  db: AppDatabase,
+  row: DatabaseSchema["events"],
+): Promise<ScheduleEvent> {
+  const candidates = await db
+    .selectFrom("candidates")
+    .selectAll()
+    .where("event_id", "=", row.id)
+    .orderBy("position", "asc")
+    .execute();
+  const options = await db
+    .selectFrom("response_options")
+    .selectAll()
+    .where("event_id", "=", row.id)
+    .orderBy("position", "asc")
+    .execute();
+  return toDomainEvent(row, candidates, options);
+}
 
 /**
  * Kysely による ScheduleRepository の実装。
@@ -55,24 +76,35 @@ export function createKyselyScheduleRepository(
         .selectAll()
         .where("id", "=", eventId)
         .executeTakeFirst();
-      if (!row) {
-        return null;
-      }
+      return row ? await loadEvent(db, row) : null;
+    },
 
-      const candidates = await db
-        .selectFrom("candidates")
+    async findByGuildSeq(
+      guildId: string,
+      guildSeq: number,
+    ): Promise<ScheduleEvent | null> {
+      const row = await db
+        .selectFrom("events")
         .selectAll()
-        .where("event_id", "=", eventId)
-        .orderBy("position", "asc")
-        .execute();
-      const options = await db
-        .selectFrom("response_options")
-        .selectAll()
-        .where("event_id", "=", eventId)
-        .orderBy("position", "asc")
-        .execute();
+        .where("guild_id", "=", guildId)
+        .where("guild_seq", "=", guildSeq)
+        .executeTakeFirst();
+      return row ? await loadEvent(db, row) : null;
+    },
 
-      return toDomainEvent(row, candidates, options);
+    async listByGuild(guildId: string): Promise<ScheduleEventListItem[]> {
+      const rows = await db
+        .selectFrom("events")
+        .select(["id", "guild_seq", "title", "status"])
+        .where("guild_id", "=", guildId)
+        .orderBy("guild_seq", "desc")
+        .execute();
+      return rows.map((row) => ({
+        id: row.id,
+        guildSeq: row.guild_seq,
+        title: row.title,
+        status: row.status as EventStatus,
+      }));
     },
 
     async setMessageId(eventId: string, messageId: string): Promise<void> {

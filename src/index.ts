@@ -1,8 +1,18 @@
+import { randomUUID } from "node:crypto";
 import { Events } from "discord.js";
+import { makeAddResponse } from "./application/schedule/addResponse.js";
+import { makeAttachScheduleMessage } from "./application/schedule/attachScheduleMessage.js";
+import { makeCreateScheduleEvent } from "./application/schedule/createScheduleEvent.js";
+import { makeGetScheduleSummary } from "./application/schedule/getScheduleSummary.js";
+import { makeListScheduleEvents } from "./application/schedule/listScheduleEvents.js";
+import { makeShowScheduleEvent } from "./application/schedule/showScheduleEvent.js";
 import { EnvValidationError, loadEnv } from "./config/env.js";
 import { createDiscordClient } from "./discord/client.js";
+import { makeInteractionHandler } from "./discord/interactions/router.js";
+import { registerCommands } from "./discord/register.js";
 import { createDatabase } from "./infrastructure/database/connection.js";
 import { migrateToLatest } from "./infrastructure/database/migrator.js";
+import { createKyselyScheduleRepository } from "./infrastructure/persistence/schedule/kyselyScheduleRepository.js";
 
 async function main(): Promise<void> {
   let env: ReturnType<typeof loadEnv>;
@@ -20,10 +30,36 @@ async function main(): Promise<void> {
   const appliedCount = await migrateToLatest(db);
   console.log(`database: ready (${appliedCount} migration(s) applied)`);
 
+  const repository = createKyselyScheduleRepository(db);
+  const newId = (): string => randomUUID();
+  const now = (): Date => new Date();
+  const interactionHandler = makeInteractionHandler({
+    createScheduleEvent: makeCreateScheduleEvent({ repository, newId, now }),
+    addResponse: makeAddResponse({ repository, newId, now }),
+    getScheduleSummary: makeGetScheduleSummary({ repository }),
+    attachScheduleMessage: makeAttachScheduleMessage({ repository }),
+    listScheduleEvents: makeListScheduleEvents({ repository }),
+    showScheduleEvent: makeShowScheduleEvent({ repository }),
+  });
+
   const client = createDiscordClient();
 
-  client.once(Events.ClientReady, (readyClient) => {
+  client.once(Events.ClientReady, async (readyClient) => {
     console.log(`discord: ready (logged in as ${readyClient.user.tag})`);
+    try {
+      const count = await registerCommands({
+        token: env.discordToken,
+        applicationId: readyClient.application.id,
+        devGuildId: env.discordDevGuildId,
+      });
+      console.log(`discord: registered ${count} command(s)`);
+    } catch (error) {
+      console.error("discord: failed to register commands", error);
+    }
+  });
+
+  client.on(Events.InteractionCreate, (interaction) => {
+    void interactionHandler(interaction);
   });
 
   let shuttingDown = false;
