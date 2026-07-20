@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-FROM node:22-slim AS base
+FROM node:26-slim AS base
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
 RUN corepack enable
@@ -23,7 +23,7 @@ FROM base AS prod-deps
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile --prod
 
-FROM node:22-slim AS runtime
+FROM node:26-slim AS runtime
 ENV NODE_ENV=production
 ENV DATABASE_DIALECT=sqlite
 ENV DATABASE_URL=file:/data/bot.sqlite3
