@@ -50,9 +50,10 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm test:coverage
-      # PRに分岐カバレッジを含むレポートをコメントする
+      # PRに分岐カバレッジを含むレポートをコメントする。
+      # forkからのPRではGITHUB_TOKENがread-onlyになりコメントできないためスキップする
       - uses: davelosert/vitest-coverage-report-action@8b157684c6a6b259b97d45e72b44242865c0f6a5 # v2
-        if: ${{ github.event_name == 'pull_request' && always() }}
+        if: ${{ always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
 
   audit:
     runs-on: ubuntu-latest
