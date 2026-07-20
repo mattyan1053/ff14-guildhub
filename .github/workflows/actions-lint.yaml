@@ -1,0 +1,35 @@
+# GitHub Actionsワークフロー自体の静的解析。
+# workflows配下を変更したときだけ発火する。
+name: Actions Lint
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/**"
+  pull_request:
+    paths:
+      - ".github/workflows/**"
+
+permissions:
+  contents: read
+
+jobs:
+  actionlint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:latest -color
+
+  zizmor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - run: pipx install zizmor
+      - run: zizmor --format github .github/workflows/
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -12,7 +12,10 @@
     "build": "tsc -p tsconfig.build.json",
     "start": "node --env-file-if-exists=.env dist/index.js",
     "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "lint": "biome check .",
+    "knip": "knip",
+    "depcruise": "depcruise --config .dependency-cruiser.cjs src",
     "format": "biome format --write .",
     "typecheck": "tsc --noEmit"
   },
@@ -24,8 +27,12 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.4",
+    "@swc/core": "^1.15.43",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^26.1.1",
+    "@vitest/coverage-v8": "^4.1.10",
+    "dependency-cruiser": "^18.1.0",
+    "knip": "^6.27.0",
     "tsx": "^4.23.1",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10"
