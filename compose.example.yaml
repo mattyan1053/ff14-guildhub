@@ -1,0 +1,17 @@
+# GuildHub セルフホスト用Composeサンプル
+#
+# 使い方:
+#   1. このファイルを compose.yaml として保存
+#   2. .env を作成して DISCORD_TOKEN を設定(.env.example参照)
+#   3. docker compose up -d
+services:
+  guildhub:
+    image: ghcr.io/mattyan1053/ff14-guildhub:latest
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - guildhub-data:/data
+
+volumes:
+  guildhub-data:
