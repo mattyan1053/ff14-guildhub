@@ -1,0 +1,21 @@
+# 開発用Compose。セルフホスト向けはcompose.example.yamlを参照
+services:
+  bot:
+    build:
+      context: .
+      target: dev
+    command: pnpm dev
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_DIALECT: sqlite
+      DATABASE_URL: file:/data/bot.sqlite3
+    volumes:
+      - .:/app
+      - node_modules:/app/node_modules
+      - dev-data:/data
+
+volumes:
+  node_modules:
+  dev-data:

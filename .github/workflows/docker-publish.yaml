@@ -1,0 +1,23 @@
+# イメージ公開のトリガー定義。タグ戦略はdocker-image.yaml側にある。
+# なお、paths-ignoreはタグpushには適用されない(v*タグは常にビルドされる)。
+name: Docker Publish
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+    paths-ignore:
+      - "docs/**"
+      - "**.md"
+  # 任意のブランチから検証用イメージを公開したいときに手動実行する
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    uses: ./.github/workflows/docker-image.yaml
+    with:
+      push: true
