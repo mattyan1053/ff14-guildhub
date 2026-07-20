@@ -23,4 +23,14 @@ FF14の固定活動を中心としたDiscordコミュニティ向け運営支援
 
 ## 開発コマンド
 
-プロジェクト初期化後に追記する。予定: `pnpm dev` / `build` / `start` / `test` / `lint` / `format` / `typecheck`
+```bash
+pnpm dev        # tsx watchでBotを起動
+pnpm build      # tsconfig.build.jsonでdist/へビルド
+pnpm start      # ビルド済みアプリケーションの起動
+pnpm test       # Vitest
+pnpm lint       # Biome(format + lintチェック)
+pnpm format     # Biomeフォーマット適用
+pnpm typecheck  # tsc --noEmit
+```
+
+コード変更後は `pnpm lint && pnpm typecheck && pnpm test` を通すこと。
