@@ -45,3 +45,4 @@
 | [0001](0001-implementation-as-source-of-truth.md) | 仕様書を正とせず、実装とテストを仕様の正とする。判断のみADRに記録する | accepted | process |
 | [0002](0002-initial-tech-stack.md) | Node.js + TypeScript + discord.js + SQLite(Kysely)+ Biome + Vitest をDockerで配布する | accepted | stack, db, tooling |
 | [0003](0003-layered-architecture.md) | Discord / Application / Domain / Infrastructure の4層に分離し、コアをdiscord.js非依存にする | accepted | architecture |
+| [0004](0004-schedule-coordination-model.md) | 候補日ごとに各メンバーの参加可能な開始時刻(いつでも/主催定義の時刻から/未定/不可)を回答パネルで集め、日ごとに開始時刻別の参加可能人数を集計するDiscord完結型の日程調整 | accepted | architecture, db, feature |
