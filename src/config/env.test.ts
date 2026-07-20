@@ -3,7 +3,6 @@ import { EnvValidationError, loadEnv } from "./env.js";
 
 const validSource = {
   DISCORD_TOKEN: "dummy-token",
-  DISCORD_APPLICATION_ID: "123456789012345678",
   DATABASE_DIALECT: "sqlite",
   DATABASE_URL: "file:/data/bot.sqlite3",
 };
@@ -14,30 +13,29 @@ describe("loadEnv", () => {
 
     expect(env).toEqual({
       discordToken: "dummy-token",
-      discordApplicationId: "123456789012345678",
       database: { dialect: "sqlite", filePath: "/data/bot.sqlite3" },
     });
   });
 
-  it("すべて未設定の場合、全項目のエラーをまとめて報告する", () => {
+  it("DATABASE_DIALECTとDATABASE_URLはデフォルト値で補完される", () => {
+    const env = loadEnv({ DISCORD_TOKEN: "dummy-token" });
+
+    expect(env.database).toEqual({
+      dialect: "sqlite",
+      filePath: "./data/bot.sqlite3",
+    });
+  });
+
+  it("DISCORD_TOKEN未設定はエラーになる", () => {
     try {
       loadEnv({});
       expect.unreachable("EnvValidationError が投げられるべき");
     } catch (error) {
       expect(error).toBeInstanceOf(EnvValidationError);
       const issues = (error as EnvValidationError).issues;
-      expect(issues).toHaveLength(4);
-      expect(issues.join("\n")).toContain("DISCORD_TOKEN");
-      expect(issues.join("\n")).toContain("DISCORD_APPLICATION_ID");
-      expect(issues.join("\n")).toContain("DATABASE_DIALECT");
-      expect(issues.join("\n")).toContain("DATABASE_URL");
+      expect(issues).toHaveLength(1);
+      expect(issues[0]).toContain("DISCORD_TOKEN");
     }
-  });
-
-  it("DISCORD_APPLICATION_IDが数値でない場合エラーになる", () => {
-    expect(() =>
-      loadEnv({ ...validSource, DISCORD_APPLICATION_ID: "not-a-snowflake" }),
-    ).toThrow(/numeric Discord snowflake/);
   });
 
   it("sqlite以外のDATABASE_DIALECTを拒否する", () => {
@@ -62,5 +60,11 @@ describe("loadEnv", () => {
     expect(() => loadEnv({ ...validSource, DISCORD_TOKEN: "   " })).toThrow(
       /DISCORD_TOKEN/,
     );
+  });
+
+  it("空白のみのDATABASE_URLはデフォルト値として扱う", () => {
+    const env = loadEnv({ DISCORD_TOKEN: "dummy-token", DATABASE_URL: "  " });
+
+    expect(env.database.filePath).toBe("./data/bot.sqlite3");
   });
 });

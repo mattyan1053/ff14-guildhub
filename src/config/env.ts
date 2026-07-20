@@ -1,6 +1,5 @@
 export interface Env {
   readonly discordToken: string;
-  readonly discordApplicationId: string;
   readonly database: {
     readonly dialect: "sqlite";
     readonly filePath: string;
@@ -19,7 +18,7 @@ export class EnvValidationError extends Error {
   }
 }
 
-const SNOWFLAKE_PATTERN = /^\d{17,20}$/;
+const DEFAULT_DATABASE_URL = "file:./data/bot.sqlite3";
 
 export function loadEnv(
   source: Record<string, string | undefined> = process.env,
@@ -33,27 +32,14 @@ export function loadEnv(
     );
   }
 
-  const discordApplicationId = source.DISCORD_APPLICATION_ID?.trim();
-  if (!discordApplicationId) {
-    issues.push(
-      "DISCORD_APPLICATION_ID is required (application ID from the Discord Developer Portal)",
-    );
-  } else if (!SNOWFLAKE_PATTERN.test(discordApplicationId)) {
-    issues.push("DISCORD_APPLICATION_ID must be a numeric Discord snowflake");
-  }
-
-  const dialect = source.DATABASE_DIALECT?.trim();
+  const dialect = source.DATABASE_DIALECT?.trim() || "sqlite";
   if (dialect !== "sqlite") {
-    issues.push(
-      `DATABASE_DIALECT must be "sqlite" (got: ${dialect ?? "unset"})`,
-    );
+    issues.push(`DATABASE_DIALECT must be "sqlite" (got: ${dialect})`);
   }
 
-  const databaseUrl = source.DATABASE_URL?.trim();
+  const databaseUrl = source.DATABASE_URL?.trim() || DEFAULT_DATABASE_URL;
   let filePath: string | undefined;
-  if (!databaseUrl) {
-    issues.push('DATABASE_URL is required (e.g. "file:/data/bot.sqlite3")');
-  } else if (!databaseUrl.startsWith("file:")) {
+  if (!databaseUrl.startsWith("file:")) {
     issues.push(
       'DATABASE_URL must start with "file:" while DATABASE_DIALECT is "sqlite"',
     );
@@ -66,18 +52,12 @@ export function loadEnv(
     }
   }
 
-  if (
-    issues.length > 0 ||
-    !discordToken ||
-    !discordApplicationId ||
-    !filePath
-  ) {
+  if (issues.length > 0 || !discordToken || !filePath) {
     throw new EnvValidationError(issues);
   }
 
   return {
     discordToken,
-    discordApplicationId,
     database: { dialect: "sqlite", filePath },
   };
 }
