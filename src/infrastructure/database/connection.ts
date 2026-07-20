@@ -3,9 +3,57 @@ import { dirname } from "node:path";
 import SQLite from "better-sqlite3";
 import { Kysely, SqliteDialect } from "kysely";
 
-// テーブルを追加するときは、マイグレーションと合わせてここに型定義を足す
-// biome-ignore lint/suspicious/noEmptyInterface: スキーマは最初の機能実装で追加される
-export interface DatabaseSchema {}
+// テーブルを追加するときは、マイグレーションと合わせてここに型定義を足す。
+// INSERT/UPDATE の値はアプリ層が明示するため Generated<> は使わない。
+interface EventsTable {
+  id: string;
+  guild_id: string;
+  channel_id: string;
+  message_id: string | null;
+  creator_id: string;
+  guild_seq: number;
+  title: string;
+  description: string | null;
+  status: string;
+  created_at: string;
+  updated_at: string;
+}
+
+interface CandidatesTable {
+  id: string;
+  event_id: string;
+  label: string;
+  starts_at: string | null;
+  position: number;
+  created_at: string;
+}
+
+interface ResponseOptionsTable {
+  id: string;
+  event_id: string;
+  label: string;
+  kind: string;
+  start_minute: number | null;
+  position: number;
+  created_at: string;
+}
+
+interface ResponsesTable {
+  id: string;
+  event_id: string;
+  candidate_id: string;
+  response_option_id: string;
+  user_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DatabaseSchema {
+  events: EventsTable;
+  candidates: CandidatesTable;
+  response_options: ResponseOptionsTable;
+  responses: ResponsesTable;
+}
 
 export type AppDatabase = Kysely<DatabaseSchema>;
 
