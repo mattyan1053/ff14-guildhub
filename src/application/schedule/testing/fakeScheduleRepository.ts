@@ -3,6 +3,7 @@ import type {
   ScheduleEvent,
 } from "../../../domain/schedule/scheduleEvent.js";
 import type {
+  ScheduleEventListItem,
   ScheduleRepository,
   UpsertResponseInput,
 } from "../ports/scheduleRepository.js";
@@ -46,6 +47,31 @@ export function createFakeScheduleRepository(): FakeScheduleRepository {
 
     findById(eventId: string): Promise<ScheduleEvent | null> {
       return Promise.resolve(events.get(eventId) ?? null);
+    },
+
+    findByGuildSeq(
+      guildId: string,
+      guildSeq: number,
+    ): Promise<ScheduleEvent | null> {
+      for (const event of events.values()) {
+        if (event.guildId === guildId && event.guildSeq === guildSeq) {
+          return Promise.resolve(event);
+        }
+      }
+      return Promise.resolve(null);
+    },
+
+    listByGuild(guildId: string): Promise<ScheduleEventListItem[]> {
+      const items = [...events.values()]
+        .filter((event) => event.guildId === guildId)
+        .sort((a, b) => b.guildSeq - a.guildSeq)
+        .map((event) => ({
+          id: event.id,
+          guildSeq: event.guildSeq,
+          title: event.title,
+          status: event.status,
+        }));
+      return Promise.resolve(items);
     },
 
     setMessageId(eventId: string, messageId: string): Promise<void> {

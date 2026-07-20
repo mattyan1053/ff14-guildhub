@@ -13,6 +13,7 @@ describe("loadEnv", () => {
 
     expect(env).toEqual({
       discordToken: "dummy-token",
+      discordDevGuildId: null,
       database: { dialect: "sqlite", filePath: "/data/bot.sqlite3" },
     });
   });
@@ -66,5 +67,23 @@ describe("loadEnv", () => {
     const env = loadEnv({ DISCORD_TOKEN: "dummy-token", DATABASE_URL: "  " });
 
     expect(env.database.filePath).toBe("./data/bot.sqlite3");
+  });
+
+  it("DISCORD_DEV_GUILD_IDがあればその値を返す", () => {
+    const env = loadEnv({ ...validSource, DISCORD_DEV_GUILD_ID: "123456789" });
+
+    expect(env.discordDevGuildId).toBe("123456789");
+  });
+
+  it("DISCORD_DEV_GUILD_ID未設定はnullになる", () => {
+    const env = loadEnv(validSource);
+
+    expect(env.discordDevGuildId).toBeNull();
+  });
+
+  it("空白のみのDISCORD_DEV_GUILD_IDはnullとして扱う", () => {
+    const env = loadEnv({ ...validSource, DISCORD_DEV_GUILD_ID: "   " });
+
+    expect(env.discordDevGuildId).toBeNull();
   });
 });

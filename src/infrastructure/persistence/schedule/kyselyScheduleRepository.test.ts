@@ -345,4 +345,90 @@ describe("createKyselyScheduleRepository", () => {
       expect(responses).toHaveLength(0);
     });
   });
+
+  describe("findByGuildSeq と listByGuild", () => {
+    it("guild 内連番でイベントを引く", async () => {
+      db = await setup();
+      const repo = createKyselyScheduleRepository(db);
+      await repo.create(
+        buildEvent({
+          id: "e1",
+          guildSeq: 1,
+          candidates: [],
+          responseOptions: [],
+        }),
+      );
+      await repo.create(
+        buildEvent({
+          id: "e2",
+          guildSeq: 2,
+          candidates: [],
+          responseOptions: [],
+        }),
+      );
+
+      const found = await repo.findByGuildSeq("guild-1", 2);
+      expect(found?.id).toBe("e2");
+    });
+
+    it("該当連番が無ければ null", async () => {
+      db = await setup();
+      const repo = createKyselyScheduleRepository(db);
+
+      expect(await repo.findByGuildSeq("guild-1", 5)).toBeNull();
+    });
+
+    it("guild のイベントを連番降順で一覧する", async () => {
+      db = await setup();
+      const repo = createKyselyScheduleRepository(db);
+      await repo.create(
+        buildEvent({
+          id: "e1",
+          guildSeq: 1,
+          title: "1回目",
+          candidates: [],
+          responseOptions: [],
+        }),
+      );
+      await repo.create(
+        buildEvent({
+          id: "e2",
+          guildSeq: 2,
+          title: "2回目",
+          candidates: [],
+          responseOptions: [],
+        }),
+      );
+
+      const items = await repo.listByGuild("guild-1");
+      expect(items.map((i) => i.guildSeq)).toEqual([2, 1]);
+      expect(items[0]?.title).toBe("2回目");
+      expect(items[0]?.status).toBe("open");
+    });
+
+    it("別 guild のイベントは一覧に含めない", async () => {
+      db = await setup();
+      const repo = createKyselyScheduleRepository(db);
+      await repo.create(
+        buildEvent({
+          id: "e1",
+          guildId: "guild-1",
+          guildSeq: 1,
+          candidates: [],
+          responseOptions: [],
+        }),
+      );
+      await repo.create(
+        buildEvent({
+          id: "e2",
+          guildId: "guild-2",
+          guildSeq: 1,
+          candidates: [],
+          responseOptions: [],
+        }),
+      );
+
+      expect(await repo.listByGuild("guild-2")).toHaveLength(1);
+    });
+  });
 });
