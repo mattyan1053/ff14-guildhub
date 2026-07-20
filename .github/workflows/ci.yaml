@@ -3,11 +3,22 @@ name: CI
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "**.md"
   pull_request:
+    paths-ignore:
+      - "docs/**"
+      - "**.md"
 
 jobs:
-  checks:
+  check:
+    name: ${{ matrix.task }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        task: [lint, typecheck, test, build]
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -16,12 +27,11 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm lint
-      - run: pnpm typecheck
-      - run: pnpm test
-      - run: pnpm build
+      - run: pnpm ${{ matrix.task }}
 
-  docker:
+  docker-build:
+    # イメージのビルドが通ることだけ確認する。公開はdocker-publish.yaml
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
