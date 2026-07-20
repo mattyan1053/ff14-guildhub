@@ -28,7 +28,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.4",
-    "@swc/core": "^1.15.43",
+    "@swc/core": "^1.15.46",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^26.1.1",
     "@vitest/coverage-v8": "^4.1.10",
