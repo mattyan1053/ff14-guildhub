@@ -10,6 +10,10 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    # DBパスはマウントされたボリューム配下に固定する(.envの値で上書きさせない)
+    environment:
+      DATABASE_DIALECT: sqlite
+      DATABASE_URL: file:/data/bot.sqlite3
     volumes:
       - guildhub-data:/data
 
