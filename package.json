@@ -1,0 +1,33 @@
+{
+  "name": "ff14-guildhub",
+  "version": "0.1.0",
+  "description": "GuildHub - Discord community management bot for FF14 static groups",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "lint": "biome check .",
+    "format": "biome format --write .",
+    "typecheck": "tsc --noEmit"
+  },
+  "packageManager": "pnpm@11.15.1+sha512.81350b07e53c9538a02f1f2303b4290fa2d7be04e56e2a970c4cc4b417dc761de196edabd49d55c7dc9580db81007c44143e4e3d7e462b3000d23c255122d065",
+  "dependencies": {
+    "better-sqlite3": "^12.11.1",
+    "discord.js": "^14.27.0",
+    "kysely": "^0.29.4"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.4",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^26.1.1",
+    "tsx": "^4.23.1",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10"
+  }
+}
