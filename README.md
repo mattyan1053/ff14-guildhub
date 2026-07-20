@@ -39,3 +39,7 @@ pnpm dev
 - [docs/adr/](docs/adr/README.md) — 設計判断の記録(ADR)
 
 このプロジェクトは「実装とテストが仕様の正」という方針を採っています(詳細は [ADR 0001](docs/adr/0001-implementation-as-source-of-truth.md))。挙動の正確な仕様はコードとテストを参照してください。
+
+## ライセンス
+
+[MIT License](LICENSE)
