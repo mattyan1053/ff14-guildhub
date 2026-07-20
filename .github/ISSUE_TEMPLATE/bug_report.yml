@@ -1,0 +1,59 @@
+name: バグ報告
+description: 動作しない・期待と違う挙動の報告
+labels: [bug]
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: 概要
+      description: 何が起きたかを簡潔に
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 再現手順
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期待する挙動
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: バージョン
+      description: 使用しているイメージのタグ(例 latest / 0.1.0 / edge)またはコミットSHA
+      placeholder: "edge"
+    validations:
+      required: true
+  - type: dropdown
+    id: environment
+    attributes:
+      label: 実行方法
+      options:
+        - Docker Compose(配布compose.yaml)
+        - Docker Compose(リポジトリのcompose.yaml)
+        - pnpm dev / pnpm start
+        - その他(補足に記載)
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: ログ
+      description: |
+        関連するログ(docker compose logs など)。
+        ⚠️ DISCORD_TOKENなどの秘密情報が含まれていないか確認してください。
+      render: shell
+  - type: textarea
+    id: additional
+    attributes:
+      label: 補足
+      description: compose/環境変数の構成(秘密情報はマスク)、スクリーンショットなど
