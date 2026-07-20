@@ -6,11 +6,13 @@ on:
     paths-ignore:
       - "docs/**"
       - "**.md"
+      - ".claude/**"
   pull_request:
     branches: [main]
     paths-ignore:
       - "docs/**"
       - "**.md"
+      - ".claude/**"
   schedule:
     # 依存やクエリ更新による新規検出を拾うため週1で全体を再解析する
     - cron: "24 3 * * 1"
