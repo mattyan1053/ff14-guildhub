@@ -136,4 +136,26 @@ describe("makeCreateScheduleEvent", () => {
       "no",
     ]);
   });
+
+  it("空行や重複があっても candidateStartsAt が正しい候補に対応する", async () => {
+    const repository = createFakeScheduleRepository();
+    const createScheduleEvent = makeCreateScheduleEvent({
+      repository,
+      newId: sequentialIds(),
+      now: () => FIXED_NOW,
+    });
+    const d25 = new Date("2026-07-25T12:00:00.000Z");
+    const d26 = new Date("2026-07-26T12:00:00.000Z");
+
+    const { event } = await createScheduleEvent(
+      input({
+        candidateLines: ["7/25", "", "7/26"],
+        candidateStartsAt: [d25, null, d26],
+      }),
+    );
+
+    expect(event.candidates.map((c) => c.label)).toEqual(["7/25", "7/26"]);
+    expect(event.candidates[0]?.startsAt).toEqual(d25);
+    expect(event.candidates[1]?.startsAt).toEqual(d26);
+  });
 });
