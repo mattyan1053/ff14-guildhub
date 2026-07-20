@@ -54,10 +54,10 @@ docker compose up -d
 
 ## バックアップ
 
-SQLiteのDBファイルをコピーするだけでよい。安全にバックアップするには、Botを停止してからボリュームの内容を取り出す:
+SQLiteのDBファイルをコピーするだけでよい。安全にバックアップするには、Botを停止してからコンテナ経由でファイルを取り出す:
 
 ```bash
 docker compose stop
-docker run --rm -v guildhub-data:/data -v "$PWD":/backup alpine cp /data/bot.sqlite3 /backup/
+docker compose cp guildhub:/data/bot.sqlite3 ./bot.sqlite3.backup
 docker compose start
 ```
