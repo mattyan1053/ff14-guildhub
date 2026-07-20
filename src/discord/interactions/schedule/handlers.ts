@@ -1,8 +1,10 @@
 import {
   type ButtonInteraction,
   type ChatInputCommandInteraction,
+  type Client,
   MessageFlags,
   type ModalSubmitInteraction,
+  PermissionFlagsBits,
   type StringSelectMenuInteraction,
 } from "discord.js";
 import type { makeAddResponse } from "../../../application/schedule/addResponse.js";
@@ -35,12 +37,42 @@ export interface ScheduleInteractionDeps {
 }
 
 const EPHEMERAL = { flags: MessageFlags.Ephemeral } as const;
+const MAX_CONTENT = 1900;
 
 function errorMessage(error: unknown): string {
   if (error instanceof ScheduleValidationError) {
     return `入力を確認してください:\n${error.issues.map((i) => `・${i}`).join("\n")}`;
   }
   return "処理中にエラーが発生しました。";
+}
+
+/**
+ * channelId からチャンネルを解決する。interaction.channel はキャッシュ依存で
+ * 正常なギルドチャンネルでも null になりうるため、常に fetch で取得する。
+ */
+async function fetchChannel(client: Client, channelId: string) {
+  try {
+    return await client.channels.fetch(channelId);
+  } catch {
+    return null;
+  }
+}
+
+function truncateLines(lines: string[]): string {
+  const content = lines.join("\n");
+  if (content.length <= MAX_CONTENT) {
+    return content;
+  }
+  const kept: string[] = [];
+  let length = 0;
+  for (const line of lines) {
+    if (length + line.length + 1 > MAX_CONTENT) {
+      break;
+    }
+    kept.push(line);
+    length += line.length + 1;
+  }
+  return `${kept.join("\n")}\n…他 ${lines.length - kept.length} 件(番号で /schedule show してください)`;
 }
 
 function pageOfCandidate(
@@ -55,12 +87,15 @@ function pageOfCandidate(
 
 /** 公開メッセージを最新の集計で編集する(消えていても無視する)。 */
 async function updatePublicMessage(
-  interaction: StringSelectMenuInteraction,
+  client: Client,
   summary: ScheduleSummary,
 ): Promise<void> {
-  const messageId = summary.event.messageId;
-  const channel = interaction.channel;
-  if (!messageId || !channel?.isTextBased()) {
+  const { messageId, channelId } = summary.event;
+  if (!messageId) {
+    return;
+  }
+  const channel = await fetchChannel(client, channelId);
+  if (!channel?.isTextBased()) {
     return;
   }
   try {
@@ -74,6 +109,21 @@ async function updatePublicMessage(
 export async function handleCreateCommand(
   interaction: ChatInputCommandInteraction,
 ): Promise<void> {
+  if (!interaction.inGuild()) {
+    await interaction.reply({
+      content: "サーバー内で使ってください。",
+      ...EPHEMERAL,
+    });
+    return;
+  }
+  // 作成のみ ManageEvents で絞る(list/show は誰でも可)。
+  if (!interaction.memberPermissions.has(PermissionFlagsBits.ManageEvents)) {
+    await interaction.reply({
+      content: "この操作には「イベントの管理」権限が必要です。",
+      ...EPHEMERAL,
+    });
+    return;
+  }
   await interaction.showModal(buildCreateModal());
 }
 
@@ -82,7 +132,7 @@ export async function handleCreateModal(
   deps: ScheduleInteractionDeps,
 ): Promise<void> {
   const channelId = interaction.channelId;
-  if (!interaction.inGuild() || !interaction.channel || channelId === null) {
+  if (!interaction.inGuild() || channelId === null) {
     await interaction.reply({
       content: "サーバー内のテキストチャンネルで使ってください。",
       ...EPHEMERAL,
@@ -122,10 +172,10 @@ export async function handleCreateModal(
     return;
   }
 
-  const channel = interaction.channel;
-  if (!channel.isSendable()) {
+  const channel = await fetchChannel(interaction.client, channelId);
+  if (!channel?.isSendable()) {
     await interaction.editReply({
-      content: `作成しました(#${guildSeq})が、このチャンネルには投稿できませんでした。`,
+      content: `作成しました(#${guildSeq})が、このチャンネルには投稿できませんでした。ボットにチャンネルの閲覧・送信権限があるか確認してください。`,
     });
     return;
   }
@@ -214,7 +264,7 @@ export async function handleAnswer(
       pageOfCandidate(summary, candidateId),
     ),
   );
-  await updatePublicMessage(interaction, summary);
+  await updatePublicMessage(interaction.client, summary);
 }
 
 export async function handleList(
@@ -237,14 +287,15 @@ export async function handleList(
     return;
   }
   const lines = items.map((item) => `#${item.guildSeq}  ${item.title}`);
-  await interaction.reply({ content: lines.join("\n"), ...EPHEMERAL });
+  await interaction.reply({ content: truncateLines(lines), ...EPHEMERAL });
 }
 
 export async function handleShow(
   interaction: ChatInputCommandInteraction,
   deps: ScheduleInteractionDeps,
 ): Promise<void> {
-  if (!interaction.inGuild() || !interaction.channel) {
+  const channelId = interaction.channelId;
+  if (!interaction.inGuild() || channelId === null) {
     await interaction.reply({
       content: "サーバー内で使ってください。",
       ...EPHEMERAL,
@@ -264,8 +315,8 @@ export async function handleShow(
     });
     return;
   }
-  const channel = interaction.channel;
-  if (!channel.isSendable()) {
+  const channel = await fetchChannel(interaction.client, channelId);
+  if (!channel?.isSendable()) {
     await interaction.editReply({
       content: "このチャンネルには投稿できませんでした。",
     });
