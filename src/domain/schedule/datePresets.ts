@@ -52,10 +52,14 @@ export function weekWindow(now: Date, offset: number): DatePreset[] {
 }
 
 /**
- * "YYYY-MM-DD"(ゼロ埋め4-2-2)を 00:00 JST の UTC Date に変換する。
- * 形式不一致は null(カスタム候補日ラベル等はここで null になる)。
+ * "YYYY-MM-DD"(ゼロ埋め4-2-2)を「UTCフィールドがJST暦日を表すDate」に変換する。
+ * 形式不一致と実在しない暦日は null。
+ *
+ * Date.UTC は 2026-02-31 のような範囲外を黙って繰り上げ正規化し、0-99 の年を
+ * 1900+年 と解釈する。ユーザーが入力していない日に化けるのを防ぐため、
+ * 年月日を読み戻して元の値と一致することを確かめる。
  */
-export function startsAtFromDateValue(value: string): Date | null {
+function parseJstDayValue(value: string): Date | null {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
   if (!match) {
     return null;
@@ -63,7 +67,24 @@ export function startsAtFromDateValue(value: string): Date | null {
   const year = Number(match[1]);
   const month = Number(match[2]);
   const day = Number(match[3]);
-  return new Date(Date.UTC(year, month - 1, day) - JST_OFFSET_MS);
+  const jstDay = new Date(Date.UTC(year, month - 1, day));
+  if (
+    jstDay.getUTCFullYear() !== year ||
+    jstDay.getUTCMonth() !== month - 1 ||
+    jstDay.getUTCDate() !== day
+  ) {
+    return null;
+  }
+  return jstDay;
+}
+
+/**
+ * "YYYY-MM-DD"(ゼロ埋め4-2-2)を 00:00 JST の UTC Date に変換する。
+ * 形式不一致と実在しない暦日は null(カスタム候補日ラベル等はここで null になる)。
+ */
+export function startsAtFromDateValue(value: string): Date | null {
+  const jstDay = parseJstDayValue(value);
+  return jstDay ? new Date(jstDay.getTime() - JST_OFFSET_MS) : null;
 }
 
 /**
@@ -85,14 +106,8 @@ export function datesBetween(startValue: string, endValue: string): string[] {
   return out;
 }
 
-/** "YYYY-MM-DD" を "M/D(曜)" に整形する。形式不一致は null。 */
+/** "YYYY-MM-DD" を "M/D(曜)" に整形する。形式不一致と実在しない暦日は null。 */
 export function formatDateLabel(value: string): string | null {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
-  if (!match) {
-    return null;
-  }
-  const jstDay = new Date(
-    Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])),
-  );
-  return presetFromJstDay(jstDay).label;
+  const jstDay = parseJstDayValue(value);
+  return jstDay ? presetFromJstDay(jstDay).label : null;
 }
