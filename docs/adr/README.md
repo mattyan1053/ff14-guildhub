@@ -46,3 +46,6 @@
 | [0002](0002-initial-tech-stack.md) | Node.js + TypeScript + discord.js + SQLite(Kysely)+ Biome + Vitest をDockerで配布する | accepted | stack, db, tooling |
 | [0003](0003-layered-architecture.md) | Discord / Application / Domain / Infrastructure の4層に分離し、コアをdiscord.js非依存にする | accepted | architecture |
 | [0004](0004-schedule-coordination-model.md) | 候補日ごとに各メンバーの参加可能な開始時刻(いつでも/主催定義の時刻から/未定/不可)を回答パネルで集め、日ごとに開始時刻別の参加可能人数を集計するDiscord完結型の日程調整 | accepted | architecture, db, feature |
+| [0005](0005-schedule-create-builder.md) | `/schedule create` の入力を、JST固定のプリセットをセレクトで選ぶエフェメラルの対話ビルダーへ置き換える。途中状態はサーバーに持たず、パネル自身のコンポーネント値を真実源にする | superseded | architecture, feature |
+| [0006](0006-schedule-create-calendar.md) | `/schedule create` の候補日を、今日起点の7日窓を週ごとにページングするトグルボタン(初期未選択)にし、選択済み候補日はEmbedのフィールドに保持する。時刻・作成フロー等は0005を引き継ぐ | superseded | architecture, feature |
+| [0007](0007-schedule-create-flow.md) | `/schedule create` を入力順(タイトル→説明→候補日→時刻)の1枚パネルにする。候補日は週カレンダーで「期間を範囲タップ→個別に除外」、時刻は既定○△✖で任意にモーダル追加、タイトル/説明はパネル内ボタン、選択はEmbedにプレビュー | accepted | architecture, feature |
