@@ -4,62 +4,7 @@ import type {
   CandidateSummary,
   OptionTally,
 } from "../../domain/schedule/summary.js";
-import {
-  clampPage,
-  currentAnswerOptionId,
-  PANEL_PAGE_SIZE,
-  pageCount,
-  pageItems,
-} from "./panelModel.js";
-
-describe("PANEL_PAGE_SIZE", () => {
-  it("既定ページサイズは4", () => {
-    expect(PANEL_PAGE_SIZE).toBe(4);
-  });
-});
-
-describe("pageCount", () => {
-  it("端数を切り上げて総ページ数を返す", () => {
-    expect(pageCount(4)).toBe(1);
-    expect(pageCount(5)).toBe(2);
-    expect(pageCount(8)).toBe(2);
-    expect(pageCount(9)).toBe(3);
-  });
-
-  it("total=0のときは0ページ", () => {
-    expect(pageCount(0)).toBe(0);
-  });
-
-  it("sizeを指定できる", () => {
-    expect(pageCount(6, 3)).toBe(2);
-  });
-});
-
-describe("clampPage", () => {
-  it("負のページは0にクランプする", () => {
-    expect(clampPage(-1, 5)).toBe(0);
-  });
-
-  it("最大ページ以上は最終ページindexにクランプする", () => {
-    expect(clampPage(99, 5)).toBe(1);
-  });
-
-  it("範囲内のページはそのまま返す", () => {
-    expect(clampPage(1, 8)).toBe(1);
-  });
-});
-
-describe("pageItems", () => {
-  const items = [0, 1, 2, 3, 4, 5, 6, 7, 8];
-
-  it("既定サイズで該当ページをスライスする", () => {
-    expect(pageItems(items, 1)).toEqual([4, 5, 6, 7]);
-  });
-
-  it("末尾ページは余った件数のみ返す", () => {
-    expect(pageItems(items, 2)).toEqual([8]);
-  });
-});
+import { currentAnswerOptionId } from "./panelModel.js";
 
 function optionTally(
   responseOptionId: string,

@@ -13,7 +13,7 @@ import {
   TextInputBuilder,
   TextInputStyle,
 } from "discord.js";
-import type { makeAddResponse } from "../../../application/schedule/addResponse.js";
+import type { makeAddResponses } from "../../../application/schedule/addResponses.js";
 import type { makeAttachScheduleMessage } from "../../../application/schedule/attachScheduleMessage.js";
 import type { makeCreateScheduleEvent } from "../../../application/schedule/createScheduleEvent.js";
 import type { makeGetScheduleSummary } from "../../../application/schedule/getScheduleSummary.js";
@@ -28,7 +28,18 @@ import { MAX_CANDIDATES } from "../../../domain/schedule/limits.js";
 import type { ScheduleSummary } from "../../../domain/schedule/summary.js";
 import { parseTimeSlots } from "../../../domain/schedule/validation.js";
 import { SHOW_OPTION_NUMBER } from "../../commands/schedule.js";
-import { renderAnswerPanel } from "../../render/answerPanel.js";
+import {
+  ANSWER_APPLY_PREFIX,
+  ANSWER_DAY_PREFIX,
+  ANSWER_DONE_PREFIX,
+  ANSWER_WEEK_PREFIX,
+  initialDraft,
+  parseAnswerPanel,
+  parseApplyValue,
+  renderAnswerPanel,
+  renderInitialAnswerPanel,
+} from "../../render/answerPanel.js";
+import { applyKind, commitEntries } from "../../render/answerPanelModel.js";
 import {
   BUILDER_DAY_PREFIX,
   BUILDER_PERIOD_MODAL,
@@ -40,13 +51,12 @@ import {
   parseBuilderState,
   renderCreateBuilder,
 } from "../../render/createBuilder.js";
-import { PANEL_PAGE_SIZE } from "../../render/panelModel.js";
 import { renderPublicMessage } from "../../render/publicMessage.js";
 import { renderScheduleList } from "../../render/scheduleList.js";
 
 export interface ScheduleInteractionDeps {
   createScheduleEvent: ReturnType<typeof makeCreateScheduleEvent>;
-  addResponse: ReturnType<typeof makeAddResponse>;
+  addResponses: ReturnType<typeof makeAddResponses>;
   getScheduleSummary: ReturnType<typeof makeGetScheduleSummary>;
   attachScheduleMessage: ReturnType<typeof makeAttachScheduleMessage>;
   listScheduleEvents: ReturnType<typeof makeListScheduleEvents>;
@@ -85,16 +95,6 @@ async function fetchChannel(client: Client, channelId: string) {
   } catch {
     return null;
   }
-}
-
-function pageOfCandidate(
-  summary: ScheduleSummary,
-  candidateId: string,
-): number {
-  const index = summary.candidates.findIndex(
-    (c) => c.candidate.id === candidateId,
-  );
-  return index < 0 ? 0 : Math.floor(index / PANEL_PAGE_SIZE);
 }
 
 /** 公開メッセージを最新の集計で編集する(消えていても無視する)。 */
@@ -489,6 +489,12 @@ export async function handleBuilderSubmit(
 
 // ── 回答パネル ─────────────────────────────────────────────
 
+/** eventId を末尾に持つ custom_id から eventId を取り出す(週ナビは ":index" を除く)。 */
+function eventIdFromSuffix(customId: string, prefix: string): string {
+  return customId.slice(prefix.length).split(":")[0] ?? "";
+}
+
+/** 「回答する」ボタン → 自分の下書きパネル(既存回答を反映)を開く。 */
 export async function handlePanelOpen(
   interaction: ButtonInteraction,
   eventId: string,
@@ -502,18 +508,29 @@ export async function handlePanelOpen(
     });
     return;
   }
+  const draft = initialDraft(summary, interaction.user.id);
+  if (draft.size === 0) {
+    // 日付つき候補が無い(旧データ等)。カレンダーパネルは日付候補前提のため出せない。
+    await interaction.reply({
+      content:
+        "この日程調整には日付つきの候補がないため、パネルで回答できません。",
+      ...EPHEMERAL,
+    });
+    return;
+  }
   await interaction.reply({
-    ...renderAnswerPanel(summary, interaction.user.id, 0),
+    ...renderInitialAnswerPanel(summary.event, draft),
     ...EPHEMERAL,
   });
 }
 
-export async function handlePanelPage(
+/** 週ナビ。表示中の週を切り替える(下書きは保持、選択はクリア)。 */
+export async function handleAnswerWeek(
   interaction: ButtonInteraction,
-  eventId: string,
-  page: number,
   deps: ScheduleInteractionDeps,
 ): Promise<void> {
+  const eventId = eventIdFromSuffix(interaction.customId, ANSWER_WEEK_PREFIX);
+  const target = Number(interaction.customId.split(":").at(-1));
   const summary = await deps.getScheduleSummary({ eventId });
   if (!summary) {
     await interaction.update({
@@ -522,45 +539,109 @@ export async function handlePanelPage(
     });
     return;
   }
+  const { draft } = parseAnswerPanel(interaction.message, summary.event);
+  const weekIndex = Number.isFinite(target) ? target : 0;
   await interaction.update(
-    renderAnswerPanel(summary, interaction.user.id, page),
+    renderAnswerPanel(summary.event, draft, weekIndex, []),
   );
 }
 
-export async function handleAnswer(
-  interaction: StringSelectMenuInteraction,
-  eventId: string,
-  candidateId: string,
+/** 日ボタン。適用対象の日をトグル選択する(下書き・週は保持)。 */
+export async function handleAnswerDay(
+  interaction: ButtonInteraction,
   deps: ScheduleInteractionDeps,
 ): Promise<void> {
-  const optionId = interaction.values[0];
-  if (!optionId) {
+  const eventId = eventIdFromSuffix(interaction.customId, ANSWER_DAY_PREFIX);
+  const dateValue =
+    interaction.customId.slice(ANSWER_DAY_PREFIX.length).split(":")[1] ?? "";
+  const summary = await deps.getScheduleSummary({ eventId });
+  if (!summary) {
+    await interaction.update({
+      content: "見つかりませんでした。",
+      components: [],
+    });
+    return;
+  }
+  const { draft, weekIndex, selectedDates } = parseAnswerPanel(
+    interaction.message,
+    summary.event,
+  );
+  const next = selectedDates.includes(dateValue)
+    ? selectedDates.filter((v) => v !== dateValue)
+    : [...selectedDates, dateValue];
+  await interaction.update(
+    renderAnswerPanel(summary.event, draft, weekIndex, next),
+  );
+}
+
+/** 適用select。選択中の日にまとめて種別を適用する(DB保存はしない=下書きのみ)。 */
+export async function handleAnswerApply(
+  interaction: StringSelectMenuInteraction,
+  deps: ScheduleInteractionDeps,
+): Promise<void> {
+  const eventId = eventIdFromSuffix(interaction.customId, ANSWER_APPLY_PREFIX);
+  const kind = parseApplyValue(interaction.values[0] ?? "");
+  const summary = await deps.getScheduleSummary({ eventId });
+  if (!summary || !kind) {
     await interaction.deferUpdate();
     return;
   }
+  const { draft, weekIndex, selectedDates } = parseAnswerPanel(
+    interaction.message,
+    summary.event,
+  );
+  const next = applyKind(draft, selectedDates, kind);
+  // 適用後は選択をクリアして次のマークに移れるようにする。
+  await interaction.update(
+    renderAnswerPanel(summary.event, next, weekIndex, []),
+  );
+}
 
-  let summary: ScheduleSummary;
-  try {
-    const result = await deps.addResponse({
-      eventId,
-      candidateId,
-      responseOptionId: optionId,
-      userId: interaction.user.id,
+/** 「完了」。下書きを一括保存し、公開メッセージを更新してパネルを畳む。 */
+export async function handleAnswerDone(
+  interaction: ButtonInteraction,
+  deps: ScheduleInteractionDeps,
+): Promise<void> {
+  const eventId = eventIdFromSuffix(interaction.customId, ANSWER_DONE_PREFIX);
+  const summary = await deps.getScheduleSummary({ eventId });
+  if (!summary) {
+    await interaction.update({
+      content: "見つかりませんでした。",
+      components: [],
     });
-    summary = result.summary;
+    return;
+  }
+  const { draft } = parseAnswerPanel(interaction.message, summary.event);
+  let saved: ScheduleSummary;
+  try {
+    const result = await deps.addResponses({
+      eventId,
+      userId: interaction.user.id,
+      entries: commitEntries(summary.event, draft),
+    });
+    saved = result.summary;
   } catch (error) {
+    // まだ update していないのでパネルは残る。reply でエラーだけ知らせる。
     await interaction.reply({ content: errorMessage(error), ...EPHEMERAL });
     return;
   }
+  await interaction.update({
+    content: "回答を保存しました。ご協力ありがとうございます！",
+    embeds: [],
+    components: [],
+  });
+  await updatePublicMessage(interaction.client, saved);
+}
 
-  await interaction.update(
-    renderAnswerPanel(
-      summary,
-      interaction.user.id,
-      pageOfCandidate(summary, candidateId),
-    ),
-  );
-  await updatePublicMessage(interaction.client, summary);
+/** 「閉じる」。パネルを畳む(下書きは破棄・保存しない)。 */
+export async function handleAnswerClose(
+  interaction: ButtonInteraction,
+): Promise<void> {
+  await interaction.update({
+    content: "回答パネルを閉じました。",
+    embeds: [],
+    components: [],
+  });
 }
 
 export async function handleList(

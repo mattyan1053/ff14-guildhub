@@ -8,6 +8,13 @@ import {
 } from "discord.js";
 import { decode, LIST_SELECT } from "../customId.js";
 import {
+  ANSWER_APPLY_PREFIX,
+  ANSWER_CLOSE,
+  ANSWER_DAY_PREFIX,
+  ANSWER_DONE_PREFIX,
+  ANSWER_WEEK_PREFIX,
+} from "../render/answerPanel.js";
+import {
   BUILDER_CANCEL_BUTTON,
   BUILDER_DAY_PREFIX,
   BUILDER_PERIOD_BUTTON,
@@ -20,7 +27,11 @@ import {
   BUILDER_WEEK_PREFIX,
 } from "../render/createBuilder.js";
 import {
-  handleAnswer,
+  handleAnswerApply,
+  handleAnswerClose,
+  handleAnswerDay,
+  handleAnswerDone,
+  handleAnswerWeek,
   handleBuilderCancel,
   handleBuilderDayToggle,
   handleBuilderPaging,
@@ -35,7 +46,6 @@ import {
   handleList,
   handleListSelect,
   handlePanelOpen,
-  handlePanelPage,
   handleShow,
   type ScheduleInteractionDeps,
 } from "./schedule/handlers.js";
@@ -70,6 +80,22 @@ async function routeButton(
     await handleBuilderPaging(interaction);
     return;
   }
+  if (id.startsWith(ANSWER_WEEK_PREFIX)) {
+    await handleAnswerWeek(interaction, deps);
+    return;
+  }
+  if (id.startsWith(ANSWER_DAY_PREFIX)) {
+    await handleAnswerDay(interaction, deps);
+    return;
+  }
+  if (id.startsWith(ANSWER_DONE_PREFIX)) {
+    await handleAnswerDone(interaction, deps);
+    return;
+  }
+  if (id === ANSWER_CLOSE) {
+    await handleAnswerClose(interaction);
+    return;
+  }
   switch (id) {
     case BUILDER_PERIOD_BUTTON:
       await handleBuilderPeriodButton(interaction);
@@ -93,13 +119,6 @@ async function routeButton(
   const decoded = decode(interaction.customId);
   if (decoded?.action === "panel") {
     await handlePanelOpen(interaction, decoded.eventId, deps);
-  } else if (decoded?.action === "page") {
-    await handlePanelPage(
-      interaction,
-      decoded.eventId,
-      decoded.page ?? 0,
-      deps,
-    );
   }
 }
 
@@ -111,9 +130,8 @@ async function routeSelect(
     await handleListSelect(interaction, deps);
     return;
   }
-  const decoded = decode(interaction.customId);
-  if (decoded?.action === "answer" && decoded.candidateId) {
-    await handleAnswer(interaction, decoded.eventId, decoded.candidateId, deps);
+  if (interaction.customId.startsWith(ANSWER_APPLY_PREFIX)) {
+    await handleAnswerApply(interaction, deps);
   }
 }
 
