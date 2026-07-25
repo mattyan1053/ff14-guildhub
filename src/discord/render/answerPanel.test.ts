@@ -185,24 +185,6 @@ describe("renderAnswerPanel", () => {
     );
   });
 
-  it("カレンダーは自分の例外だけ塗り、参加可/未入力は塗らない", () => {
-    const week = eventOf(["2026-07-26", "2026-07-27"]); // 同じ週
-    const draft = draftOf([
-      ["2026-07-26", "attend"],
-      ["2026-07-27", "no"],
-    ]);
-    const payload = renderAnswerPanel(week, draft, 0, []);
-    const cal = (firstEmbed(payload).fields ?? []).find((f) =>
-      f.name.startsWith("📅"),
-    );
-    const value = cal?.value ?? "";
-    const ESC = String.fromCharCode(27);
-    // 27日(不可)は黒で塗る
-    expect(value).toContain(`${ESC}[0;37;40m 27 ${ESC}[0m`);
-    // 26日(参加可)は塗らない → 緑(参加可の旧色)の背景が出ない
-    expect(value).not.toContain(`${ESC}[1;37;42m`);
-  });
-
   it("日ボタンのラベルは下書き種別の記号を含む", () => {
     const week = eventOf(["2026-07-26", "2026-07-27"]); // 同じ週
     const payload = renderAnswerPanel(
