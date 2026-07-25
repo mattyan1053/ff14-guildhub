@@ -94,6 +94,29 @@ describe("makeCreateScheduleEvent", () => {
     expect(second.event.guildSeq).toBe(2);
   });
 
+  it("末尾を削除してから作り直しても番号を再利用しない", async () => {
+    const repository = createFakeScheduleRepository();
+    const createScheduleEvent = makeCreateScheduleEvent({
+      repository,
+      newId: sequentialIds(),
+      now: () => FIXED_NOW,
+    });
+
+    const first = await createScheduleEvent(input()); // #1
+    const second = await createScheduleEvent(input()); // #2
+    const third = await createScheduleEvent(input()); // #3
+
+    // 末尾 #3 を削除
+    await repository.delete(third.event.id);
+
+    const fourth = await createScheduleEvent(input()); // #3 ではなく #4
+
+    expect([first, second, third].map((r) => r.event.guildSeq)).toEqual([
+      1, 2, 3,
+    ]);
+    expect(fourth.event.guildSeq).toBe(4);
+  });
+
   it("タイトルが空だと ScheduleValidationError を伝播する", async () => {
     const repository = createFakeScheduleRepository();
     const createScheduleEvent = makeCreateScheduleEvent({

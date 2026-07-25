@@ -71,13 +71,20 @@ export function createKyselyScheduleRepository(
   db: AppDatabase,
 ): ScheduleRepository {
   return {
-    async nextGuildSeq(guildId: string): Promise<number> {
+    async allocateGuildSeq(guildId: string): Promise<number> {
+      // guild ごとの単調増加カウンタを1文で原子的に払い出す。
+      // 行が無ければ 1 から、あれば last_seq+1。削除では減らない(再利用しない)。
       const row = await db
-        .selectFrom("events")
-        .select((eb) => eb.fn.max("guild_seq").as("max"))
-        .where("guild_id", "=", guildId)
-        .executeTakeFirst();
-      return (row?.max ?? 0) + 1;
+        .insertInto("guild_counters")
+        .values({ guild_id: guildId, last_seq: 1 })
+        .onConflict((oc) =>
+          oc.column("guild_id").doUpdateSet((eb) => ({
+            last_seq: eb("guild_counters.last_seq", "+", 1),
+          })),
+        )
+        .returning("last_seq")
+        .executeTakeFirstOrThrow();
+      return row.last_seq;
     },
 
     async create(event: ScheduleEvent): Promise<void> {
@@ -131,6 +138,11 @@ export function createKyselyScheduleRepository(
         title: row.title,
         status: row.status as EventStatus,
       }));
+    },
+
+    async delete(eventId: string): Promise<void> {
+      // candidates / response_options / responses は FK の onDelete cascade で消える。
+      await db.deleteFrom("events").where("id", "=", eventId).execute();
     },
 
     async setMessageId(eventId: string, messageId: string): Promise<void> {

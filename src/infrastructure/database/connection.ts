@@ -48,11 +48,17 @@ interface ResponsesTable {
   updated_at: string;
 }
 
+interface GuildCountersTable {
+  guild_id: string;
+  last_seq: number;
+}
+
 export interface DatabaseSchema {
   events: EventsTable;
   candidates: CandidatesTable;
   response_options: ResponseOptionsTable;
   responses: ResponsesTable;
+  guild_counters: GuildCountersTable;
 }
 
 export type AppDatabase = Kysely<DatabaseSchema>;

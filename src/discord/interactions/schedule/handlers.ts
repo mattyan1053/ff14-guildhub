@@ -1,9 +1,12 @@
 import {
   ActionRowBuilder,
   type BaseMessageOptions,
+  ButtonBuilder,
   type ButtonInteraction,
+  ButtonStyle,
   type ChatInputCommandInteraction,
   type Client,
+  type MessageActionRowComponentBuilder,
   MessageFlags,
   type ModalActionRowComponentBuilder,
   ModalBuilder,
@@ -16,6 +19,8 @@ import {
 import type { makeAddResponses } from "../../../application/schedule/addResponses.js";
 import type { makeAttachScheduleMessage } from "../../../application/schedule/attachScheduleMessage.js";
 import type { makeCreateScheduleEvent } from "../../../application/schedule/createScheduleEvent.js";
+import type { makeDeleteScheduleEvent } from "../../../application/schedule/deleteScheduleEvent.js";
+import type { makeGetScheduleEventByNumber } from "../../../application/schedule/getScheduleEventByNumber.js";
 import type { makeGetScheduleSummary } from "../../../application/schedule/getScheduleSummary.js";
 import type { makeListScheduleEvents } from "../../../application/schedule/listScheduleEvents.js";
 import type { makeShowScheduleEvent } from "../../../application/schedule/showScheduleEvent.js";
@@ -28,7 +33,11 @@ import { MAX_CANDIDATES } from "../../../domain/schedule/limits.js";
 import type { ScheduleSummary } from "../../../domain/schedule/summary.js";
 import { hhmm } from "../../../domain/schedule/time.js";
 import { parseTimeSlots } from "../../../domain/schedule/validation.js";
-import { SHOW_OPTION_NUMBER } from "../../commands/schedule.js";
+import {
+  DELETE_OPTION_NUMBER,
+  SHOW_OPTION_NUMBER,
+} from "../../commands/schedule.js";
+import { DELETE_CANCEL, encodeDeleteConfirm } from "../../customId.js";
 import {
   ANSWER_APPLY_PREFIX,
   ANSWER_DAY_PREFIX,
@@ -62,6 +71,8 @@ export interface ScheduleInteractionDeps {
   attachScheduleMessage: ReturnType<typeof makeAttachScheduleMessage>;
   listScheduleEvents: ReturnType<typeof makeListScheduleEvents>;
   showScheduleEvent: ReturnType<typeof makeShowScheduleEvent>;
+  getScheduleEventByNumber: ReturnType<typeof makeGetScheduleEventByNumber>;
+  deleteScheduleEvent: ReturnType<typeof makeDeleteScheduleEvent>;
 }
 
 const EPHEMERAL = { flags: MessageFlags.Ephemeral } as const;
@@ -109,6 +120,27 @@ async function updatePublicMessage(
     await message.edit(renderPublicMessage(summary));
   } catch {
     // メッセージが削除された等。/schedule show で再表示できるので無視する。
+  }
+}
+
+/** 公開メッセージを削除する(best-effort。既に消えている/権限が無い等は無視する)。 */
+async function deletePublicMessage(
+  client: Client,
+  channelId: string,
+  messageId: string | null,
+): Promise<void> {
+  if (!messageId) {
+    return;
+  }
+  const channel = await fetchChannel(client, channelId);
+  if (!channel?.isTextBased()) {
+    return;
+  }
+  try {
+    const message = await channel.messages.fetch(messageId);
+    await message.delete();
+  } catch {
+    // 既に削除済み・権限不足等。DB 側の削除は確定しているので無視する。
   }
 }
 
@@ -734,5 +766,141 @@ export async function handleListSelect(
   });
   await interaction.editReply({
     content: `#${summary.event.guildSeq} を表示しました。`,
+  });
+}
+
+// ── 削除 ─────────────────────────────────────────────
+
+/** 作成者本人、または ManageEvents 権限を持つメンバーだけが削除できる。 */
+function canDelete(
+  interaction: ChatInputCommandInteraction | ButtonInteraction,
+  creatorId: string,
+): boolean {
+  if (interaction.user.id === creatorId) {
+    return true;
+  }
+  return (
+    interaction.memberPermissions?.has(PermissionFlagsBits.ManageEvents) ??
+    false
+  );
+}
+
+/**
+ * /schedule delete 番号。番号→イベント解決→権限判定→確認パネル(ephemeral)を出す。
+ * 実際の削除は「削除する」ボタン(handleDeleteConfirm)まで行わない。
+ */
+export async function handleDelete(
+  interaction: ChatInputCommandInteraction,
+  deps: ScheduleInteractionDeps,
+): Promise<void> {
+  if (!interaction.inGuild()) {
+    await interaction.reply({
+      content: "サーバー内で使ってください。",
+      ...EPHEMERAL,
+    });
+    return;
+  }
+  const guildSeq = interaction.options.getInteger(DELETE_OPTION_NUMBER, true);
+  const event = await deps.getScheduleEventByNumber({
+    guildId: interaction.guildId,
+    guildSeq,
+  });
+  if (!event) {
+    await interaction.reply({
+      content: `#${guildSeq} は見つかりませんでした。`,
+      ...EPHEMERAL,
+    });
+    return;
+  }
+  if (!canDelete(interaction, event.creatorId)) {
+    await interaction.reply({
+      content:
+        "この日程調整を削除できるのは、作成者本人または「イベントの管理」権限を持つ人だけです。",
+      ...EPHEMERAL,
+    });
+    return;
+  }
+
+  const row =
+    new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
+      new ButtonBuilder()
+        .setCustomId(encodeDeleteConfirm(event.id))
+        .setLabel("削除する")
+        .setStyle(ButtonStyle.Danger),
+      new ButtonBuilder()
+        .setCustomId(DELETE_CANCEL)
+        .setLabel("やめる")
+        .setStyle(ButtonStyle.Secondary),
+    );
+  await interaction.reply({
+    content: `#${event.guildSeq}「${event.title}」を削除します。候補・回答もすべて消えて元に戻せません。よろしいですか?`,
+    components: [row],
+    allowedMentions: { parse: [] },
+    ...EPHEMERAL,
+  });
+}
+
+/** 確認パネルの「削除する」。権限を再判定して物理削除し、公開メッセージも消す。 */
+export async function handleDeleteConfirm(
+  interaction: ButtonInteraction,
+  eventId: string,
+  deps: ScheduleInteractionDeps,
+): Promise<void> {
+  if (!interaction.inGuild()) {
+    await interaction.update({
+      content: "サーバー内で使ってください。",
+      components: [],
+    });
+    return;
+  }
+  // 確認表示から確定までの間に前提が変わりうるため、確定時にも読み直して権限を再判定する。
+  const summary = await deps.getScheduleSummary({ eventId });
+  if (!summary) {
+    await interaction.update({
+      content: "この日程調整は既に削除されています。",
+      embeds: [],
+      components: [],
+    });
+    return;
+  }
+  if (!canDelete(interaction, summary.event.creatorId)) {
+    await interaction.update({
+      content:
+        "この日程調整を削除できるのは、作成者本人または「イベントの管理」権限を持つ人だけです。",
+      embeds: [],
+      components: [],
+    });
+    return;
+  }
+
+  const deleted = await deps.deleteScheduleEvent({ eventId });
+  if (!deleted) {
+    await interaction.update({
+      content: "この日程調整は既に削除されています。",
+      embeds: [],
+      components: [],
+    });
+    return;
+  }
+  await deletePublicMessage(
+    interaction.client,
+    deleted.channelId,
+    deleted.messageId,
+  );
+  await interaction.update({
+    content: `#${deleted.guildSeq}「${deleted.title}」を削除しました。`,
+    embeds: [],
+    components: [],
+  });
+}
+
+/** 確認パネルの「やめる」。何もせずパネルを畳む。 */
+export async function handleDeleteCancel(
+  interaction: ButtonInteraction,
+): Promise<void> {
+  await interaction.update({
+    content: "削除をキャンセルしました。",
+    embeds: [],
+    components: [],
   });
 }
