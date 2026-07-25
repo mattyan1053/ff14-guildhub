@@ -10,48 +10,39 @@ import type {
   CandidateSummary,
   ScheduleSummary,
 } from "../../domain/schedule/summary.js";
+import { hhmm } from "../../domain/schedule/time.js";
+import {
+  buildAnsiCalendarFields,
+  ANSI_RESET as RESET,
+  SGR_BLACK,
+  SGR_BLUEGRAY,
+  SGR_CYAN,
+  SGR_GREEN,
+  SGR_RED,
+  SGR_VIOLET,
+  SGR_YELLOW,
+} from "./ansiCalendar.js";
 
 // 候補日を「その日に活動があるか・何時からか」で塗り分けたカレンダー(作成ビルダーと
 // 同じ等幅 ANSI グリッド)を組み立てる。開始時刻ごとに背景色を割り当て、実際の時刻は
 // 凡例(buildLegendField)で説明する。セルには日付数字しか入らないため、色=時刻の対応は
 // 凡例が担う。
 
-const ESC = String.fromCharCode(27);
-const RESET = `${ESC}[0m`;
-
 // 活動あり=緑系 / 未定=黄 / 休み=黒 を直感的な対応にする。いちばん普通の活動日である
 // 「いつでも(時刻指定なし)」を緑にし、時刻指定は緑と衝突しない緑隣接色から順に割り当てる。
 // 時刻は増えうるため一色に固定できず、種類が増えたら緑から離れていく(固定活動の候補時刻は
 // 通常1〜3種)。実際の色相は凡例が同じ SGR を描いて意味を固定する。Discord の ansi 背景は 40-47 のみ。
 const TIME_PALETTE = [
-  `${ESC}[1;30;46m`, // 黒 on 青緑(シアン)← 緑に最も近いが「いつでも」の緑と区別する
-  `${ESC}[1;30;44m`, // 黒 on 灰青
-  `${ESC}[1;37;45m`, // 白 on 菫
-  `${ESC}[1;37;41m`, // 白 on 朱
+  SGR_CYAN, // 青緑 ← 緑に最も近いが「いつでも」の緑と区別する
+  SGR_BLUEGRAY, // 灰青
+  SGR_VIOLET, // 菫
+  SGR_RED, // 朱
 ];
 // 「いつでも」は活動あり・時刻未指定のいちばん普通の活動日なので緑にする。時刻指定は上の
 // パレット(緑以外)を使うので、混在しても凡例で別々の意味に割り当てて判別できる。
-const ANYTIME_SGR = `${ESC}[1;37;42m`; // 緑: いつでも(活動あり・時刻なし)
-const PENDING_SGR = `${ESC}[1;30;43m`; // 黄: 未定(連絡待ち)
-const REST_SGR = `${ESC}[0;37;40m`; // 黒: 活動なし(休み)
-
-const WEEKDAY_HEADER = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"]
-  .map((weekday) => ` ${weekday} `)
-  .join("");
-
-function pad2(value: number): string {
-  return String(value).padStart(2, "0");
-}
-
-/** 分(0..1439)を "HH:MM" に整形する。 */
-function hhmm(startMinute: number): string {
-  return `${pad2(Math.floor(startMinute / 60))}:${pad2(startMinute % 60)}`;
-}
-
-/** 日番号を2桁幅(前ゼロなし・空白埋め)に整える。 */
-function cellNum(value: number): string {
-  return String(value).padStart(2, " ");
-}
+const ANYTIME_SGR = SGR_GREEN; // 緑: いつでも(活動あり・時刻なし)
+const PENDING_SGR = SGR_YELLOW; // 黄: 未定(連絡待ち)
+const REST_SGR = SGR_BLACK; // 黒: 活動なし(休み)
 
 interface DatedCandidate {
   readonly value: string; // YYYY-MM-DD(JST)
@@ -120,65 +111,23 @@ function sgrForStatus(status: DayStatus, scheme: ColorScheme): string {
   return REST_SGR;
 }
 
-/** 1ヶ月分のカレンダー。候補日は活動状態別の SGR で背景を塗る。 */
-function monthGrid(
-  year: number,
-  month: number,
-  sgrByDay: ReadonlyMap<number, string>,
-): string {
-  const firstWeekday = new Date(Date.UTC(year, month - 1, 1)).getUTCDay();
-  const days = new Date(Date.UTC(year, month, 0)).getUTCDate();
-  const cells: string[] = [];
-  for (let i = 0; i < firstWeekday; i += 1) {
-    cells.push("    ");
-  }
-  for (let day = 1; day <= days; day += 1) {
-    const cell = ` ${cellNum(day)} `;
-    const sgr = sgrByDay.get(day);
-    cells.push(sgr ? `${sgr}${cell}${RESET}` : cell);
-  }
-  // 年月はフィールド名(📅 YYYY-MM)側に出すので、ブロック内には曜日行から並べる。
-  const rows = [WEEKDAY_HEADER];
-  for (let i = 0; i < cells.length; i += 7) {
-    rows.push(cells.slice(i, i + 7).join(""));
-  }
-  return rows.join("\n");
-}
-
 /**
  * 候補日(startsAt を持つもの)を月ごとの Embed フィールド(等幅ANSIカレンダー)にする。
  * 各候補日は活動の開始時刻/いつでも/休みで背景色を塗る。日付を持つ候補が無ければ空。
  */
-export function buildActivityCalendarFields(
-  summary: ScheduleSummary,
-): { name: string; value: string }[] {
+export function buildActivityCalendarFields(summary: ScheduleSummary) {
   const dated = datedCandidates(summary);
   if (dated.length === 0) {
     return [];
   }
   const scheme = activityColorScheme(summary);
-
-  const byMonth = new Map<string, Map<number, string>>();
-  for (const { value, candidate } of dated) {
-    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
-    if (!match) {
-      continue;
-    }
-    const key = `${match[1]}-${match[2]}`;
-    const map = byMonth.get(key) ?? new Map<number, string>();
-    map.set(Number(match[3]), sgrForStatus(decideDayStatus(candidate), scheme));
-    byMonth.set(key, map);
-  }
-
-  return [...byMonth.keys()].sort().map((key) => {
-    const [year, month] = key.split("-").map(Number);
-    const grid = monthGrid(
-      year as number,
-      month as number,
-      byMonth.get(key) as Map<number, string>,
-    );
-    return { name: `📅 ${key}`, value: `\`\`\`ansi\n${grid}\n\`\`\`` };
-  });
+  return buildAnsiCalendarFields(
+    dated.map(
+      ({ value, candidate }) =>
+        [value, sgrForStatus(decideDayStatus(candidate), scheme)] as const,
+    ),
+    { fieldName: (key) => `📅 ${key}` },
+  );
 }
 
 /** 背景色と「開始時刻/いつでも/休み」の対応(凡例)。実際に使われている時刻だけ並べる。 */

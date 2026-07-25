@@ -1,10 +1,8 @@
 import {
-  ActionRowBuilder,
   type BaseMessageOptions,
   ButtonBuilder,
   ButtonStyle,
   EmbedBuilder,
-  type MessageActionRowComponentBuilder,
   StringSelectMenuBuilder,
   StringSelectMenuOptionBuilder,
 } from "discord.js";
@@ -13,6 +11,14 @@ import {
   formatDateLabel,
 } from "../../domain/schedule/datePresets.js";
 import type { ScheduleEvent } from "../../domain/schedule/scheduleEvent.js";
+import {
+  ANSI_RESET,
+  buildAnsiCalendarFields,
+  SGR_BLACK,
+  SGR_CYAN,
+  SGR_GREEN,
+  SGR_YELLOW,
+} from "./ansiCalendar.js";
 import {
   candidateWeeks,
   type Draft,
@@ -24,13 +30,19 @@ import {
   initialDraft,
   parseDraftDetail,
 } from "./answerPanelModel.js";
+import {
+  buttonRows,
+  flatComponents,
+  type RawComponent,
+  type Row,
+  row,
+  toData,
+} from "./componentTree.js";
 
 // 回答パネル(ADR 0008)。自分の回答をカレンダーでプレビューしつつ、例外(不可/未定/時刻)
 // だけを「週の日ボタンで対象日を選ぶ → 適用selectで種別を選ぶ」でマークする。週送りで
 // 移動し、選択できる日はボタンとして見えている(プルダウンを開かないと分からない、を避ける)。
 // 下書きの真実源は Embed の「下書き明細」フィールド(draftDetailText)で、背景色からは復元しない。
-
-const MAX_BUTTONS_PER_ROW = 5;
 
 // custom_id。日ボタンは dateValue を、週ナビはインデックスを、適用/完了は eventId を末尾に持つ。
 export const ANSWER_DAY_PREFIX = "sch:v1:ans:day:";
@@ -50,42 +62,29 @@ const DETAIL_EMPTY =
 const MAX_FIELD_VALUE = 1000;
 const LEGEND_FIELD_NAME = "凡例(背景色=あなたの回答)";
 
-// 表示専用の4状態カラー(下書き明細が真実源なので色は判別できれば足りる)。
-const ESC = String.fromCharCode(27);
-const RESET = `${ESC}[0m`;
-const SGR_ATTEND = `${ESC}[1;37;42m`; // 緑: 参加可(いつでも)
-const SGR_TIME = `${ESC}[1;30;46m`; // シアン: 時刻指定
-const SGR_MAYBE = `${ESC}[1;30;43m`; // 黄: 未定
-const SGR_NO = `${ESC}[0;37;40m`; // 黒: 不可
-
-const WEEKDAY_HEADER = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"]
-  .map((weekday) => ` ${weekday} `)
-  .join("");
 const APPLY_ATTEND = "attend";
 const APPLY_MAYBE = "maybe";
 const APPLY_NO = "no";
 // 選択中の日ボタンは Primary、未選択は Secondary。パースはこの style で見分ける。
 const SELECTED_STYLE = ButtonStyle.Primary;
 
-function cellNum(value: number): string {
-  return String(value).padStart(2, " ");
-}
-
 function isTime(kind: DraftKind): kind is { readonly startMinute: number } {
   return typeof kind === "object";
 }
 
+// 表示専用の4状態カラー(下書き明細が真実源なので色は判別できれば足りる)。
+// 緑=参加可 / シアン=時刻指定 / 黄=未定 / 黒=不可。
 function sgrForKind(kind: DraftKind): string {
   if (kind === "maybe") {
-    return SGR_MAYBE;
+    return SGR_YELLOW;
   }
   if (kind === "no") {
-    return SGR_NO;
+    return SGR_BLACK;
   }
   if (isTime(kind)) {
-    return SGR_TIME;
+    return SGR_CYAN;
   }
-  return SGR_ATTEND;
+  return SGR_GREEN;
 }
 
 /** 短い状態記号(日ボタンのラベル用)。 */
@@ -103,59 +102,23 @@ function kindMark(kind: DraftKind): string {
 }
 
 /** 候補日(YYYY-MM-DD)を月ごとに ANSI カレンダーへ。候補日を下書き種別で塗る。 */
-function buildCalendarFields(draft: Draft): { name: string; value: string }[] {
-  const byMonth = new Map<string, Map<number, DraftKind>>();
-  for (const [value, kind] of draft) {
-    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
-    if (!match) {
-      continue;
-    }
-    const key = `${match[1]}-${match[2]}`;
-    const map = byMonth.get(key) ?? new Map<number, DraftKind>();
-    map.set(Number(match[3]), kind);
-    byMonth.set(key, map);
-  }
-  return [...byMonth.keys()].sort().map((key) => {
-    const [year, month] = key.split("-").map(Number);
-    const grid = monthGrid(
-      year as number,
-      month as number,
-      byMonth.get(key) as Map<number, DraftKind>,
-    );
-    return { name: `📅 ${key}`, value: `\`\`\`ansi\n${grid}\n\`\`\`` };
-  });
-}
-
-function monthGrid(
-  year: number,
-  month: number,
-  kindByDay: ReadonlyMap<number, DraftKind>,
-): string {
-  const firstWeekday = new Date(Date.UTC(year, month - 1, 1)).getUTCDay();
-  const days = new Date(Date.UTC(year, month, 0)).getUTCDate();
-  const cells: string[] = [];
-  for (let i = 0; i < firstWeekday; i += 1) {
-    cells.push("    ");
-  }
-  for (let day = 1; day <= days; day += 1) {
-    const cell = ` ${cellNum(day)} `;
-    const kind = kindByDay.get(day);
-    cells.push(kind ? `${sgrForKind(kind)}${cell}${RESET}` : cell);
-  }
-  const rows = [WEEKDAY_HEADER];
-  for (let i = 0; i < cells.length; i += 7) {
-    rows.push(cells.slice(i, i + 7).join(""));
-  }
-  return rows.join("\n");
+function buildCalendarFields(draft: Draft) {
+  return buildAnsiCalendarFields(
+    [...draft].map(([value, kind]) => [value, sgrForKind(kind)] as const),
+    { fieldName: (key) => `📅 ${key}` },
+  );
 }
 
 /** 使う4状態(+存在する時刻)の凡例。 */
 function buildLegend(event: ScheduleEvent): { name: string; value: string } {
-  const parts = [`${SGR_ATTEND} 参加可 ${RESET}`];
+  const parts = [`${SGR_GREEN} 参加可 ${ANSI_RESET}`];
   if (eventTimes(event).length > 0) {
-    parts.push(`${SGR_TIME} 時刻指定 ${RESET}`);
+    parts.push(`${SGR_CYAN} 時刻指定 ${ANSI_RESET}`);
   }
-  parts.push(`${SGR_MAYBE} 未定 ${RESET}`, `${SGR_NO} 不可 ${RESET}`);
+  parts.push(
+    `${SGR_YELLOW} 未定 ${ANSI_RESET}`,
+    `${SGR_BLACK} 不可 ${ANSI_RESET}`,
+  );
   return {
     name: LEGEND_FIELD_NAME,
     value: `\`\`\`ansi\n${parts.join("  ")}\n\`\`\``,
@@ -172,14 +135,6 @@ function buildDetailFields(draft: Draft): { name: string; value: string }[] {
     name: index === 0 ? DETAIL_FIELD_NAME : DETAIL_FIELD_CONT,
     value,
   }));
-}
-
-type Row = ActionRowBuilder<MessageActionRowComponentBuilder>;
-
-function row(...components: MessageActionRowComponentBuilder[]): Row {
-  return new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
-    ...components,
-  );
 }
 
 /** 週ナビ行(◀前週 / 週ラベル / 次週▶)。インデックスを custom_id に持つ。 */
@@ -219,25 +174,14 @@ function dayButtonRows(
   draft: Draft,
   selected: ReadonlySet<string>,
 ): Row[] {
-  const rows: Row[] = [];
-  for (let i = 0; i < weekDays.length; i += MAX_BUTTONS_PER_ROW) {
-    const chunk = weekDays.slice(i, i + MAX_BUTTONS_PER_ROW);
-    rows.push(
-      row(
-        ...chunk.map((value) => {
-          const kind = draft.get(value) ?? "attend";
-          const label = `${kindMark(kind)} ${formatDateLabel(value) ?? value}`;
-          return new ButtonBuilder()
-            .setCustomId(`${ANSWER_DAY_PREFIX}${eventId}:${value}`)
-            .setLabel(label)
-            .setStyle(
-              selected.has(value) ? SELECTED_STYLE : ButtonStyle.Secondary,
-            );
-        }),
-      ),
-    );
-  }
-  return rows;
+  return buttonRows(weekDays, (value) => {
+    const kind = draft.get(value) ?? "attend";
+    const label = `${kindMark(kind)} ${formatDateLabel(value) ?? value}`;
+    return new ButtonBuilder()
+      .setCustomId(`${ANSWER_DAY_PREFIX}${eventId}:${value}`)
+      .setLabel(label)
+      .setStyle(selected.has(value) ? SELECTED_STYLE : ButtonStyle.Secondary);
+  });
 }
 
 /** 選んだ日にまとめて適用する select(参加可に戻す/時刻/未定/不可)。 */
@@ -330,36 +274,6 @@ export function renderInitialAnswerPanel(
 export { initialDraft };
 
 // ── パース(メッセージ=真実源) ─────────────────────────────
-
-interface RawComponent {
-  type: number;
-  custom_id?: string;
-  style?: number;
-  disabled?: boolean;
-}
-
-function toData(value: unknown): { [k: string]: unknown } {
-  if (
-    value &&
-    typeof (value as { toJSON?: () => unknown }).toJSON === "function"
-  ) {
-    return (value as { toJSON: () => unknown }).toJSON() as {
-      [k: string]: unknown;
-    };
-  }
-  return (value ?? {}) as { [k: string]: unknown };
-}
-
-function flatComponents(payload: BaseMessageOptions): RawComponent[] {
-  const out: RawComponent[] = [];
-  for (const rowValue of payload.components ?? []) {
-    const rowData = toData(rowValue) as { components?: unknown[] };
-    for (const comp of rowData.components ?? []) {
-      out.push(comp as RawComponent);
-    }
-  }
-  return out;
-}
 
 function detailFieldText(payload: BaseMessageOptions): string {
   const embed = toData(payload.embeds?.[0]) as {

@@ -1,3 +1,5 @@
+import { pad2 } from "./time.js";
+
 const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"] as const;
@@ -9,10 +11,6 @@ export interface DatePreset {
   readonly label: string;
   /** その暦日の 00:00 JST を表す UTC Date */
   readonly startsAt: Date;
-}
-
-function pad2(value: number): string {
-  return String(value).padStart(2, "0");
 }
 
 /** JSTの暦日(UTCフィールドがJSTの年月日を表すDate)から DatePreset を作る。 */

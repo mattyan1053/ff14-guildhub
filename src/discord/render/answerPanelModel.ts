@@ -4,7 +4,10 @@ import {
 } from "../../domain/schedule/datePresets.js";
 import type { ScheduleEvent } from "../../domain/schedule/scheduleEvent.js";
 import type { ScheduleSummary } from "../../domain/schedule/summary.js";
+import { hhmm } from "../../domain/schedule/time.js";
 import { currentAnswerOptionId } from "./panelModel.js";
+
+export { hhmm };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
@@ -25,15 +28,6 @@ export type Draft = ReadonlyMap<string, DraftKind>;
 
 function isTime(kind: DraftKind): kind is { readonly startMinute: number } {
   return typeof kind === "object";
-}
-
-function pad2(value: number): string {
-  return String(value).padStart(2, "0");
-}
-
-/** 分(0..1439)を "HH:MM" に整形する。 */
-export function hhmm(startMinute: number): string {
-  return `${pad2(Math.floor(startMinute / 60))}:${pad2(startMinute % 60)}`;
 }
 
 /** イベントの responseOptions から種別ごとの optionId を引く。 */

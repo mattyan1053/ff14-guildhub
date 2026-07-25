@@ -26,6 +26,7 @@ import {
 import { ScheduleValidationError } from "../../../domain/schedule/errors.js";
 import { MAX_CANDIDATES } from "../../../domain/schedule/limits.js";
 import type { ScheduleSummary } from "../../../domain/schedule/summary.js";
+import { hhmm } from "../../../domain/schedule/time.js";
 import { parseTimeSlots } from "../../../domain/schedule/validation.js";
 import { SHOW_OPTION_NUMBER } from "../../commands/schedule.js";
 import {
@@ -70,13 +71,6 @@ const FIELD_DESCRIPTION = "description";
 const FIELD_TIMES = "times";
 const FIELD_PERIOD_START = "start";
 const FIELD_PERIOD_END = "end";
-
-/** 分(0..1439)を "HH:MM" に整形する。 */
-function minutesToHhmm(startMinute: number): string {
-  const hh = String(Math.floor(startMinute / 60)).padStart(2, "0");
-  const mm = String(startMinute % 60).padStart(2, "0");
-  return `${hh}:${mm}`;
-}
 
 function errorMessage(error: unknown): string {
   if (error instanceof ScheduleValidationError) {
@@ -390,9 +384,7 @@ export async function handleBuilderSetTimesModal(
   const lines = interaction.fields.getTextInputValue(FIELD_TIMES).split("\n");
   let timeSlots: string[];
   try {
-    timeSlots = parseTimeSlots(lines).map((slot) =>
-      minutesToHhmm(slot.startMinute),
-    );
+    timeSlots = parseTimeSlots(lines).map((slot) => hhmm(slot.startMinute));
   } catch (error) {
     // 不正な時刻はパネルを残したままエラーだけ知らせる。
     await interaction.reply({ content: errorMessage(error), ...EPHEMERAL });
