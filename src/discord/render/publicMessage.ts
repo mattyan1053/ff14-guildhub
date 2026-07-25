@@ -13,6 +13,7 @@ import {
   buildLegendField,
   formatNextActivityLine,
   formatTodayLine,
+  formatUndatedCandidateLines,
   hasDatedCandidates,
 } from "./summaryCalendar.js";
 import { formatEventHeading } from "./summaryText.js";
@@ -83,6 +84,15 @@ export function renderPublicMessage(
   const calendarFields = buildActivityCalendarFields(summary);
   if (calendarFields.length > 0) {
     fields.push(...calendarFields, buildLegendField(summary));
+  }
+  // 日付を持たない候補(旧作成モーダル製やカスタムラベル)はカレンダーに載らないので、
+  // 状態と人数を明細で拾って情報を失わないようにする。
+  const undatedLines = formatUndatedCandidateLines(summary);
+  if (undatedLines.length > 0) {
+    fields.push({
+      name: "候補(日付なし)",
+      value: truncate(undatedLines.join("\n"), MAX_FIELD),
+    });
   }
   fields.push(respondersField(summary));
   embed.addFields(...fields);

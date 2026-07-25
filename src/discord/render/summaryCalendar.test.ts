@@ -12,6 +12,7 @@ import {
   buildLegendField,
   formatNextActivityLine,
   formatTodayLine,
+  formatUndatedCandidateLines,
   hasDatedCandidates,
 } from "./summaryCalendar.js";
 
@@ -44,13 +45,33 @@ function day(
   } = {},
 ): CandidateSummary {
   const times = opts.times ?? [];
-  const optionTallies: OptionTally[] = times.map(([minute, count]) => ({
-    responseOptionId: `o-${minute}`,
-    label: hhmm(minute),
-    kind: "time",
-    count,
-    respondentIds: Array.from({ length: count }, (_, i) => `u-${minute}-${i}`),
-  }));
+  const anytime = opts.anytime ?? 0;
+  const optionTallies: OptionTally[] = [
+    ...(anytime > 0
+      ? [
+          {
+            responseOptionId: "o-yes",
+            label: "いつでも",
+            kind: "yes" as const,
+            count: anytime,
+            respondentIds: Array.from(
+              { length: anytime },
+              (_, i) => `u-yes-${i}`,
+            ),
+          },
+        ]
+      : []),
+    ...times.map(([minute, count]) => ({
+      responseOptionId: `o-${minute}`,
+      label: hhmm(minute),
+      kind: "time" as const,
+      count,
+      respondentIds: Array.from(
+        { length: count },
+        (_, i) => `u-${minute}-${i}`,
+      ),
+    })),
+  ];
   const startTimes: StartTimeTally[] = times.map(([minute, count]) => ({
     responseOptionId: `o-${minute}`,
     label: hhmm(minute),
@@ -114,6 +135,40 @@ describe("buildActivityCalendarFields", () => {
       summaryOf([day(null, 0, { anytime: 8 })]),
     );
     expect(fields).toEqual([]);
+  });
+
+  it("いつでもの日と時刻指定の日は別色で塗る(混在しても判別できる)", () => {
+    const fields = buildActivityCalendarFields(
+      summaryOf([
+        day("2026-07-25", 0, { anytime: 2 }), // いつでも
+        active22("2026-07-26", 1), // 22:00
+      ]),
+    );
+    const value = fields[0]?.value ?? "";
+    // いつでも=明色 47、時刻指定=緑 42 で異なる
+    expect(value).toContain(`${ESC}[1;30;47m 25 ${ESC}[0m`);
+    expect(value).toContain(`${ESC}[1;37;42m 26 ${ESC}[0m`);
+  });
+});
+
+describe("formatUndatedCandidateLines", () => {
+  it("日付なし候補を状態と人数つきで1行ずつ返す", () => {
+    const lines = formatUndatedCandidateLines(
+      summaryOf([
+        day(null, 0, { anytime: 3 }),
+        day(null, 1, { unavailable: 1 }),
+      ]),
+    );
+    expect(lines[0]).toBe("• カスタム — いつでも(参加可 3 / 未定 0 / 不可 0)");
+    expect(lines[1]).toBe(
+      "• カスタム — 活動なし(休み)(参加可 0 / 未定 0 / 不可 1)",
+    );
+  });
+
+  it("日付つき候補は対象外(空を返す)", () => {
+    expect(
+      formatUndatedCandidateLines(summaryOf([active22("2026-07-25", 0)])),
+    ).toEqual([]);
   });
 });
 

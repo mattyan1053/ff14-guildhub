@@ -29,7 +29,9 @@ const TIME_PALETTE = [
   `${ESC}[1;37;45m`, // 白 on 菫
   `${ESC}[1;37;41m`, // 白 on 朱
 ];
-const ANYTIME_SGR = `${ESC}[1;37;42m`; // 緑: いつでも(活動あり)
+// 「いつでも」は時刻指定と同じ緑(TIME_PALETTE 先頭)にすると、両者が混在したとき同色になり
+// 凡例で別々の意味に割り当てられて判別できない。活動ありだが時刻未指定の色として別の明色を当てる。
+const ANYTIME_SGR = `${ESC}[1;30;47m`; // 明色: いつでも(活動あり・時刻なし)
 const PENDING_SGR = `${ESC}[1;30;43m`; // 黄: 未定(連絡待ち)
 const REST_SGR = `${ESC}[0;37;40m`; // 黒: 活動なし(休み)
 
@@ -255,4 +257,42 @@ export function formatNextActivityLine(
 /** 日付つき候補が1件でもあるか(今日/次回テキストを出す価値があるか)。 */
 export function hasDatedCandidates(summary: ScheduleSummary): boolean {
   return datedCandidates(summary).length > 0;
+}
+
+/** DayStatus を状態ラベルにする(rest/pending も含む・カレンダーに載らない候補の明細用)。 */
+function statusLabel(status: DayStatus): string {
+  switch (status.kind) {
+    case "active":
+      return `${hhmm(status.startMinute)}開始`;
+    case "active-anytime":
+      return "いつでも";
+    case "pending":
+      return "未定(連絡待ち)";
+    default:
+      return "活動なし(休み)";
+  }
+}
+
+/** 参加可能(いつでも/時刻指定)と回答した人数。 */
+function attendableCount(candidate: CandidateSummary): number {
+  return candidate.optionTallies
+    .filter((tally) => tally.kind === "yes" || tally.kind === "time")
+    .reduce((sum, tally) => sum + tally.count, 0);
+}
+
+/**
+ * startsAt を持たない候補(旧作成モーダル製やカスタムラベル)の明細を1行ずつ返す。
+ * これらはカレンダーに載らないため、ここで状態と人数を出して情報を失わないようにする。
+ */
+export function formatUndatedCandidateLines(
+  summary: ScheduleSummary,
+): string[] {
+  return summary.candidates
+    .filter((candidate) => candidate.candidate.startsAt === null)
+    .map((candidate) => {
+      const status = decideDayStatus(candidate);
+      return `• ${candidate.candidate.label} — ${statusLabel(status)}(参加可 ${attendableCount(
+        candidate,
+      )} / 未定 ${candidate.maybeCount} / 不可 ${candidate.unavailableCount})`;
+    });
 }

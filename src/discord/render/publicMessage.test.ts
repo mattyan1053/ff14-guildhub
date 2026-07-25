@@ -194,4 +194,30 @@ describe("renderPublicMessage", () => {
     expect(field?.name).toBe("回答済み (0/8人)");
     expect(field?.value).toBe("まだ回答がありません");
   });
+
+  it("日付なし候補は候補(日付なし)フィールドで情報を残す(カレンダーには載らない)", () => {
+    const undated: CandidateSummary = {
+      candidate: { id: "c-x", label: "第1回", startsAt: null, position: 0 },
+      optionTallies: [
+        {
+          responseOptionId: "o-yes",
+          label: "いつでも",
+          kind: "yes",
+          count: 3,
+          respondentIds: ["a", "b", "c"],
+        },
+      ],
+      startTimes: [],
+      anytimeCount: 3,
+      maybeCount: 0,
+      unavailableCount: 0,
+    };
+    const payload = renderPublicMessage(summaryOf([undated]), NOW);
+    const fields = firstEmbed(payload).fields ?? [];
+    const field = fields.find((f) => f.name === "候補(日付なし)");
+    expect(field?.value).toContain("第1回");
+    expect(field?.value).toContain("いつでも");
+    // 日付なしのみなのでカレンダーは出ない
+    expect(fields.some((f) => f.name.startsWith("📅"))).toBe(false);
+  });
 });
