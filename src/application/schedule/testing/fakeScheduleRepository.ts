@@ -29,6 +29,24 @@ export function createFakeScheduleRepository(): FakeScheduleRepository {
     }
   }
 
+  function doUpsert(input: UpsertResponseInput): void {
+    const list = responsesByEvent.get(input.eventId) ?? [];
+    const next: Response = {
+      candidateId: input.candidateId,
+      responseOptionId: input.responseOptionId,
+      userId: input.userId,
+    };
+    const index = list.findIndex(
+      (r) => r.candidateId === input.candidateId && r.userId === input.userId,
+    );
+    if (index >= 0) {
+      list[index] = next;
+    } else {
+      list.push(next);
+    }
+    responsesByEvent.set(input.eventId, list);
+  }
+
   return {
     nextGuildSeq(guildId: string): Promise<number> {
       let max = 0;
@@ -84,21 +102,14 @@ export function createFakeScheduleRepository(): FakeScheduleRepository {
     },
 
     upsertResponse(input: UpsertResponseInput): Promise<void> {
-      const list = responsesByEvent.get(input.eventId) ?? [];
-      const next: Response = {
-        candidateId: input.candidateId,
-        responseOptionId: input.responseOptionId,
-        userId: input.userId,
-      };
-      const index = list.findIndex(
-        (r) => r.candidateId === input.candidateId && r.userId === input.userId,
-      );
-      if (index >= 0) {
-        list[index] = next;
-      } else {
-        list.push(next);
+      doUpsert(input);
+      return Promise.resolve();
+    },
+
+    upsertResponses(inputs: readonly UpsertResponseInput[]): Promise<void> {
+      for (const input of inputs) {
+        doUpsert(input);
       }
-      responsesByEvent.set(input.eventId, list);
       return Promise.resolve();
     },
 

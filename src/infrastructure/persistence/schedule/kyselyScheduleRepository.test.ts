@@ -305,6 +305,51 @@ describe("createKyselyScheduleRepository", () => {
       const responses = await repo.listResponses(event.id);
       expect(responses.map((r) => r.userId)).toEqual(["user-2", "user-1"]);
     });
+
+    it("upsertResponses は複数候補を一括保存し、再実行で置換する", async () => {
+      db = await setup();
+      const repo = createKyselyScheduleRepository(db);
+      const event = buildEvent();
+      await repo.create(event);
+
+      await repo.upsertResponses([
+        {
+          id: "resp-1",
+          eventId: event.id,
+          candidateId: "cand-0",
+          responseOptionId: "opt-yes",
+          userId: "user-1",
+          now: FIXED_NOW,
+        },
+        {
+          id: "resp-2",
+          eventId: event.id,
+          candidateId: "cand-1",
+          responseOptionId: "opt-no",
+          userId: "user-1",
+          now: FIXED_NOW,
+        },
+      ]);
+      let responses = await repo.listResponses(event.id);
+      expect(responses).toHaveLength(2);
+
+      // 同じ (candidate, user) を含む一括再実行は行を増やさず置換する
+      await repo.upsertResponses([
+        {
+          id: "resp-3",
+          eventId: event.id,
+          candidateId: "cand-0",
+          responseOptionId: "opt-no",
+          userId: "user-1",
+          now: new Date("2026-07-20T10:00:00.000Z"),
+        },
+      ]);
+      responses = await repo.listResponses(event.id);
+      expect(responses).toHaveLength(2);
+      expect(
+        responses.find((r) => r.candidateId === "cand-0")?.responseOptionId,
+      ).toBe("opt-no");
+    });
   });
 
   describe("cascade 削除", () => {

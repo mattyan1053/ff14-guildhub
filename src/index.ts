@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { Events } from "discord.js";
-import { makeAddResponse } from "./application/schedule/addResponse.js";
+import { makeAddResponses } from "./application/schedule/addResponses.js";
 import { makeAttachScheduleMessage } from "./application/schedule/attachScheduleMessage.js";
 import { makeCreateScheduleEvent } from "./application/schedule/createScheduleEvent.js";
 import { makeGetScheduleSummary } from "./application/schedule/getScheduleSummary.js";
@@ -35,7 +35,7 @@ async function main(): Promise<void> {
   const now = (): Date => new Date();
   const interactionHandler = makeInteractionHandler({
     createScheduleEvent: makeCreateScheduleEvent({ repository, newId, now }),
-    addResponse: makeAddResponse({ repository, newId, now }),
+    addResponses: makeAddResponses({ repository, newId, now }),
     getScheduleSummary: makeGetScheduleSummary({ repository }),
     attachScheduleMessage: makeAttachScheduleMessage({ repository }),
     listScheduleEvents: makeListScheduleEvents({ repository }),

@@ -49,3 +49,4 @@
 | [0005](0005-schedule-create-builder.md) | `/schedule create` の入力を、JST固定のプリセットをセレクトで選ぶエフェメラルの対話ビルダーへ置き換える。途中状態はサーバーに持たず、パネル自身のコンポーネント値を真実源にする | superseded | architecture, feature |
 | [0006](0006-schedule-create-calendar.md) | `/schedule create` の候補日を、今日起点の7日窓を週ごとにページングするトグルボタン(初期未選択)にし、選択済み候補日はEmbedのフィールドに保持する。時刻・作成フロー等は0005を引き継ぐ | superseded | architecture, feature |
 | [0007](0007-schedule-create-flow.md) | `/schedule create` を入力順(タイトル→説明→候補日→時刻)の1枚パネルにする。候補日は週カレンダーで「期間を範囲タップ→個別に除外」、時刻は既定○△✖で任意にモーダル追加、タイトル/説明はパネル内ボタン、選択はEmbedにプレビュー | accepted | architecture, feature |
+| [0008](0008-schedule-answer-panel.md) | 回答を、自分の回答をカレンダーでプレビューするエフェメラルの下書きパネルにする。デフォルト参加可(未入力=いつでも)とし、不可/未定/時刻の例外だけを「週送りの日ボタンで対象日を選ぶ→適用selectで種別を選ぶ」でマーク。パネル自身を下書きの真実源とし、「完了」で全候補を一括upsert(例外はその種別・残りはyes)して初めて保存・公開更新する。語彙はADR0004のまま | accepted | architecture, feature |

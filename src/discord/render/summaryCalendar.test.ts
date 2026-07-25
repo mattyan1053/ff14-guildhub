@@ -124,8 +124,8 @@ describe("buildActivityCalendarFields", () => {
       ]),
     );
     const value = fields[0]?.value ?? "";
-    // 25日は 22:00(唯一の時刻=パレット先頭=緑 42)、26日は休み(黒 40)、27日は未定(黄 43)
-    expect(value).toContain(`${ESC}[1;37;42m 25 ${ESC}[0m`);
+    // 25日は 22:00(唯一の時刻=パレット先頭=シアン 46)、26日は休み(黒 40)、27日は未定(黄 43)
+    expect(value).toContain(`${ESC}[1;30;46m 25 ${ESC}[0m`);
     expect(value).toContain(`${ESC}[0;37;40m 26 ${ESC}[0m`);
     expect(value).toContain(`${ESC}[1;30;43m 27 ${ESC}[0m`);
   });
@@ -145,9 +145,9 @@ describe("buildActivityCalendarFields", () => {
       ]),
     );
     const value = fields[0]?.value ?? "";
-    // いつでも=明色 47、時刻指定=緑 42 で異なる
-    expect(value).toContain(`${ESC}[1;30;47m 25 ${ESC}[0m`);
-    expect(value).toContain(`${ESC}[1;37;42m 26 ${ESC}[0m`);
+    // いつでも=緑 42、時刻指定=シアン 46 で異なる
+    expect(value).toContain(`${ESC}[1;37;42m 25 ${ESC}[0m`);
+    expect(value).toContain(`${ESC}[1;30;46m 26 ${ESC}[0m`);
   });
 });
 

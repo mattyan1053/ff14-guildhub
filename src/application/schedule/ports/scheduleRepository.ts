@@ -37,5 +37,7 @@ export interface ScheduleRepository {
   setMessageId(eventId: string, messageId: string): Promise<void>;
   /** (candidateId, userId) で upsert */
   upsertResponse(input: UpsertResponseInput): Promise<void>;
+  /** 複数の (candidateId, userId) を1トランザクションで一括 upsert(全部成功か全部失敗) */
+  upsertResponses(inputs: readonly UpsertResponseInput[]): Promise<void>;
   listResponses(eventId: string): Promise<Response[]>;
 }
