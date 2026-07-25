@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   type DatePreset,
   datesBetween,
+  dateValueFromStartsAt,
   formatDateLabel,
   startsAtFromDateValue,
   weekWindow,
@@ -363,5 +364,37 @@ describe("startsAtFromDateValue", () => {
     expect(startsAtFromDateValue((preset as DatePreset).value)?.getTime()).toBe(
       (preset as DatePreset).startsAt.getTime(),
     );
+  });
+});
+
+describe("dateValueFromStartsAt", () => {
+  it("00:00 JST の UTC Date を JST 暦日 YYYY-MM-DD に戻す", () => {
+    // 2026-07-22 00:00 JST = 2026-07-21T15:00Z
+    expect(dateValueFromStartsAt(new Date("2026-07-21T15:00:00.000Z"))).toBe(
+      "2026-07-22",
+    );
+  });
+
+  it("JST の日付境界(15:00Z)をまたいで暦日が変わる", () => {
+    // 14:59Z はまだ前日、15:00Z から翌日になる
+    expect(dateValueFromStartsAt(new Date("2026-07-21T14:59:59.000Z"))).toBe(
+      "2026-07-21",
+    );
+    expect(dateValueFromStartsAt(new Date("2026-07-21T15:00:00.000Z"))).toBe(
+      "2026-07-22",
+    );
+  });
+
+  it("不変条件: startsAtFromDateValue と往復する", () => {
+    for (const value of [
+      "2026-01-01",
+      "2026-02-28",
+      "2028-02-29",
+      "2026-07-22",
+      "2026-12-31",
+    ]) {
+      const startsAt = startsAtFromDateValue(value) as Date;
+      expect(dateValueFromStartsAt(startsAt)).toBe(value);
+    }
   });
 });

@@ -42,6 +42,7 @@ import {
 } from "../../render/createBuilder.js";
 import { PANEL_PAGE_SIZE } from "../../render/panelModel.js";
 import { renderPublicMessage } from "../../render/publicMessage.js";
+import { renderScheduleList } from "../../render/scheduleList.js";
 
 export interface ScheduleInteractionDeps {
   createScheduleEvent: ReturnType<typeof makeCreateScheduleEvent>;
@@ -53,7 +54,6 @@ export interface ScheduleInteractionDeps {
 }
 
 const EPHEMERAL = { flags: MessageFlags.Ephemeral } as const;
-const MAX_CONTENT = 1900;
 
 const FIELD_TITLE = "title";
 const FIELD_DESCRIPTION = "description";
@@ -85,23 +85,6 @@ async function fetchChannel(client: Client, channelId: string) {
   } catch {
     return null;
   }
-}
-
-function truncateLines(lines: string[]): string {
-  const content = lines.join("\n");
-  if (content.length <= MAX_CONTENT) {
-    return content;
-  }
-  const kept: string[] = [];
-  let length = 0;
-  for (const line of lines) {
-    if (length + line.length + 1 > MAX_CONTENT) {
-      break;
-    }
-    kept.push(line);
-    length += line.length + 1;
-  }
-  return `${kept.join("\n")}\n…他 ${lines.length - kept.length} 件(番号で /schedule show してください)`;
 }
 
 function pageOfCandidate(
@@ -599,8 +582,7 @@ export async function handleList(
     });
     return;
   }
-  const lines = items.map((item) => `#${item.guildSeq}  ${item.title}`);
-  await interaction.reply({ content: truncateLines(lines), ...EPHEMERAL });
+  await interaction.reply({ ...renderScheduleList(items), ...EPHEMERAL });
 }
 
 export async function handleShow(
@@ -641,4 +623,43 @@ export async function handleShow(
     messageId: message.id,
   });
   await interaction.editReply({ content: `#${guildSeq} を再表示しました。` });
+}
+
+/** 一覧の選択メニューで選んだ日程を、/schedule show と同じく公開メッセージで再表示する。 */
+export async function handleListSelect(
+  interaction: StringSelectMenuInteraction,
+  deps: ScheduleInteractionDeps,
+): Promise<void> {
+  const eventId = interaction.values[0];
+  if (!interaction.inGuild() || interaction.channelId === null || !eventId) {
+    await interaction.reply({
+      content: "サーバー内のテキストチャンネルで使ってください。",
+      ...EPHEMERAL,
+    });
+    return;
+  }
+  await interaction.deferReply(EPHEMERAL);
+
+  const summary = await deps.getScheduleSummary({ eventId });
+  if (!summary) {
+    await interaction.editReply({
+      content: "この日程調整は見つかりませんでした。",
+    });
+    return;
+  }
+  const channel = await fetchChannel(interaction.client, interaction.channelId);
+  if (!channel?.isSendable()) {
+    await interaction.editReply({
+      content: "このチャンネルには投稿できませんでした。",
+    });
+    return;
+  }
+  const message = await channel.send(renderPublicMessage(summary));
+  await deps.attachScheduleMessage({
+    eventId: summary.event.id,
+    messageId: message.id,
+  });
+  await interaction.editReply({
+    content: `#${summary.event.guildSeq} を表示しました。`,
+  });
 }

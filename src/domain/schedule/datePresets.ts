@@ -88,6 +88,14 @@ export function startsAtFromDateValue(value: string): Date | null {
 }
 
 /**
+ * startsAt(00:00 JST を表す実UTC Date)から JST 暦日 "YYYY-MM-DD" を返す。
+ * startsAtFromDateValue の逆変換で、候補日をカレンダーに配置するのに使う。
+ */
+export function dateValueFromStartsAt(startsAt: Date): string {
+  return presetFromJstDay(new Date(startsAt.getTime() + JST_OFFSET_MS)).value;
+}
+
+/**
  * startValue..endValue("YYYY-MM-DD")の全日を昇順で返す(両端含む)。
  * 逆順で渡しても昇順に整える。形式不一致は空配列。
  */
