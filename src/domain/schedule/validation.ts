@@ -1,6 +1,7 @@
 import { ScheduleValidationError } from "./errors.js";
 import { MAX_TIME_SLOTS } from "./limits.js";
 import type { ResponseOptionSpec } from "./scheduleEvent.js";
+import { pad2 } from "./time.js";
 
 export { MAX_CANDIDATES, MAX_LABEL_LENGTH, MAX_TIME_SLOTS } from "./limits.js";
 
@@ -29,10 +30,6 @@ export function normalizeCandidateLabels(lines: readonly string[]): string[] {
     result.push(label);
   }
   return result;
-}
-
-function pad2(value: number): string {
-  return String(value).padStart(2, "0");
 }
 
 /**

@@ -1,15 +1,27 @@
 import {
-  ActionRowBuilder,
   type BaseMessageOptions,
   ButtonBuilder,
   ButtonStyle,
   EmbedBuilder,
-  type MessageActionRowComponentBuilder,
 } from "discord.js";
 import {
   formatDateLabel,
   startsAtFromDateValue,
 } from "../../domain/schedule/datePresets.js";
+import { pad2 } from "../../domain/schedule/time.js";
+import {
+  type AnsiField,
+  buildAnsiCalendarFields,
+  SGR_VIOLET,
+} from "./ansiCalendar.js";
+import {
+  buttonRows,
+  flatComponents,
+  type RawComponent,
+  type Row,
+  row,
+  toData,
+} from "./componentTree.js";
 
 // ビルダーのコンポーネントID(ADR 0006)。候補日は Embed フィールドを真実源にし、
 // 時刻セレクトはコンポーネントの default を真実源にする。
@@ -30,84 +42,24 @@ const SELECTED_FIELD_EMPTY = "（まだありません。日付ボタンで選�
 const TIME_FIELD_NAME = "候補時刻(任意)";
 const TIME_FIELD_EMPTY = "（指定なし。回答は ○いつでも / △未定 / ✖不可 のみ)";
 const TIME_PATTERN = /\d{1,2}:\d{2}/g;
-const WEEKDAY_HEADER = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"]
-  .map((weekday) => ` ${weekday} `)
-  .join("");
-const MAX_BUTTONS_PER_ROW = 5;
-
-// ANSI SGR。選択日は太字・白文字・青紫背景でセルをハイライトする。
-const ANSI_ESC = String.fromCharCode(27);
-const ANSI_SELECTED = `${ANSI_ESC}[1;37;45m`;
-const ANSI_RESET = `${ANSI_ESC}[0m`;
-
-function pad2(value: number): string {
-  return String(value).padStart(2, "0");
-}
-
-/** 日番号を2桁幅(前ゼロなし・空白埋め)に整える。 */
-function cellNum(value: number): string {
-  return String(value).padStart(2, " ");
-}
-
-/** 1ヶ月分のカレンダー(ヘッダ + 週行)。選択日は ANSI で背景色ハイライトする。 */
-function monthGrid(
-  year: number,
-  month: number,
-  selectedDays: ReadonlySet<number>,
-): string {
-  const firstWeekday = new Date(Date.UTC(year, month - 1, 1)).getUTCDay();
-  const days = new Date(Date.UTC(year, month, 0)).getUTCDate();
-  const cells: string[] = [];
-  for (let i = 0; i < firstWeekday; i += 1) {
-    cells.push("    ");
-  }
-  for (let day = 1; day <= days; day += 1) {
-    const cell = ` ${cellNum(day)} `;
-    cells.push(
-      selectedDays.has(day) ? `${ANSI_SELECTED}${cell}${ANSI_RESET}` : cell,
-    );
-  }
-  const rows = [`${year}-${pad2(month)}`, WEEKDAY_HEADER];
-  for (let i = 0; i < cells.length; i += 7) {
-    rows.push(cells.slice(i, i + 7).join(""));
-  }
-  return rows.join("\n");
-}
 
 /**
  * 選択済み候補日を月ごとの Embed フィールド(等幅ANSIカレンダー)にする。
  * Embed の1フィールドは1024文字上限のため、月ごとに別フィールドへ分ける。
+ * 選択日は菫色で塗り、YYYY-MM 見出しをブロック内に残す(parseSelectedDates の往復用)。
  * 空なら非空プレースホルダの1フィールド。
  */
-function buildCalendarFields(
-  selectedDates: readonly string[],
-): { name: string; value: string }[] {
-  const byMonth = new Map<string, Set<number>>();
-  for (const value of selectedDates) {
-    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
-    if (!match) {
-      continue;
-    }
-    const key = `${match[1]}-${match[2]}`;
-    const set = byMonth.get(key) ?? new Set<number>();
-    set.add(Number(match[3]));
-    byMonth.set(key, set);
-  }
-  if (byMonth.size === 0) {
-    return [{ name: SELECTED_FIELD_NAME, value: SELECTED_FIELD_EMPTY }];
-  }
-  return [...byMonth.keys()].sort().map((key) => {
-    const [year, month] = key.split("-").map(Number);
-    const grid = monthGrid(
-      year as number,
-      month as number,
-      byMonth.get(key) as Set<number>,
-    );
-    return {
-      name: `${SELECTED_FIELD_NAME} ${key}`,
-      value: `\`\`\`ansi\n${grid}\n\`\`\``,
-    };
-  });
+function buildCalendarFields(selectedDates: readonly string[]): AnsiField[] {
+  const fields = buildAnsiCalendarFields(
+    selectedDates.map((value) => [value, SGR_VIOLET] as const),
+    {
+      fieldName: (key) => `${SELECTED_FIELD_NAME} ${key}`,
+      includeHeaderLine: true,
+    },
+  );
+  return fields.length > 0
+    ? fields
+    : [{ name: SELECTED_FIELD_NAME, value: SELECTED_FIELD_EMPTY }];
 }
 
 /**
@@ -160,38 +112,19 @@ export interface CreateInputFromBuilder {
   readonly timeSlotLines: string[];
 }
 
-type Row = ActionRowBuilder<MessageActionRowComponentBuilder>;
-
-function row(...components: MessageActionRowComponentBuilder[]): Row {
-  return new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
-    ...components,
-  );
-}
-
 /** 表示中の週の日ボタン(選択済みは Success)を最大5個/行で並べる。 */
 function dayRows(
   weekDays: readonly DayOption[],
   selected: ReadonlySet<string>,
 ): Row[] {
-  const rows: Row[] = [];
-  for (let i = 0; i < weekDays.length; i += MAX_BUTTONS_PER_ROW) {
-    const chunk = weekDays.slice(i, i + MAX_BUTTONS_PER_ROW);
-    rows.push(
-      row(
-        ...chunk.map((day) =>
-          new ButtonBuilder()
-            .setCustomId(`${BUILDER_DAY_PREFIX}${day.value}`)
-            .setLabel(day.label)
-            .setStyle(
-              selected.has(day.value)
-                ? ButtonStyle.Success
-                : ButtonStyle.Secondary,
-            ),
-        ),
+  return buttonRows(weekDays, (day) =>
+    new ButtonBuilder()
+      .setCustomId(`${BUILDER_DAY_PREFIX}${day.value}`)
+      .setLabel(day.label)
+      .setStyle(
+        selected.has(day.value) ? ButtonStyle.Success : ButtonStyle.Secondary,
       ),
-    );
-  }
-  return rows;
+  );
 }
 
 function pagingRow(state: BuilderState): Row {
@@ -274,37 +207,6 @@ export function renderCreateBuilder(state: BuilderState): BaseMessageOptions {
     ],
     allowedMentions: { parse: [] },
   };
-}
-
-interface RawComponent {
-  type: number;
-  custom_id?: string;
-  label?: string;
-  disabled?: boolean;
-  options?: { value: string; label: string; default?: boolean }[];
-}
-
-function toData(value: unknown): { [key: string]: unknown } {
-  if (
-    value &&
-    typeof (value as { toJSON?: () => unknown }).toJSON === "function"
-  ) {
-    return (value as { toJSON: () => unknown }).toJSON() as {
-      [key: string]: unknown;
-    };
-  }
-  return (value ?? {}) as { [key: string]: unknown };
-}
-
-function flatComponents(payload: BaseMessageOptions): RawComponent[] {
-  const out: RawComponent[] = [];
-  for (const rowValue of payload.components ?? []) {
-    const rowData = toData(rowValue) as { components?: unknown[] };
-    for (const comp of rowData.components ?? []) {
-      out.push(comp as RawComponent);
-    }
-  }
-  return out;
 }
 
 function embedFieldsText(payload: BaseMessageOptions): string {
