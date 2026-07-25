@@ -17,6 +17,7 @@ import {
   type Draft,
   type DraftKind,
   daysInWeek,
+  draftDetailChunks,
   draftDetailText,
   initialDraft,
   parseDraftDetail,
@@ -201,6 +202,33 @@ describe("draftDetailText / parseDraftDetail 往復", () => {
   it("例外が無ければ parse は空", () => {
     const draft: Draft = new Map<string, DraftKind>([["2026-07-25", "attend"]]);
     expect(parseDraftDetail(draftDetailText(draft)).size).toBe(0);
+  });
+});
+
+describe("draftDetailChunks", () => {
+  it("日付が多いと maxChars 以下の複数チャンクに割り、連結すれば復元できる", () => {
+    // 同一種別(不可)を28日。1行にすると長いので割られる。
+    const dates = Array.from(
+      { length: 28 },
+      (_, i) => `2026-09-${String(i + 1).padStart(2, "0")}`,
+    );
+    const draft: Draft = new Map<string, DraftKind>(
+      dates.map((d) => [d, "no"] as [string, DraftKind]),
+    );
+    const chunks = draftDetailChunks(draft, 100);
+    expect(chunks.length).toBeGreaterThan(1);
+    for (const chunk of chunks) {
+      expect(chunk.length).toBeLessThanOrEqual(100);
+    }
+    const parsed = parseDraftDetail(chunks.join("\n"));
+    expect(parsed.size).toBe(28);
+    expect(parsed.get("2026-09-01")).toBe("no");
+    expect(parsed.get("2026-09-28")).toBe("no");
+  });
+
+  it("例外が無ければ空配列", () => {
+    const draft: Draft = new Map<string, DraftKind>([["2026-07-25", "attend"]]);
+    expect(draftDetailChunks(draft, 100)).toEqual([]);
   });
 });
 

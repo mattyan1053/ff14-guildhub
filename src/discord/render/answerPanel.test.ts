@@ -59,6 +59,15 @@ function draftOf(entries: [string, DraftKind][]): Draft {
   return new Map<string, DraftKind>(entries);
 }
 
+/** start(YYYY-MM-DD)から n 日ぶんの連続した実在日付を返す。 */
+function seqDates(start: string, n: number): string[] {
+  const [y, m, d] = start.split("-").map(Number);
+  const base = Date.UTC(y as number, (m as number) - 1, d as number);
+  return Array.from({ length: n }, (_, i) =>
+    new Date(base + i * 86_400_000).toISOString().slice(0, 10),
+  );
+}
+
 function toJson(value: unknown): { [k: string]: unknown } {
   if (
     value &&
@@ -271,6 +280,25 @@ describe("renderAnswerPanel → parseAnswerPanel 往復", () => {
       [],
     );
     expect(parseAnswerPanel(payload, event).weekIndex).toBe(1);
+  });
+
+  it("例外が多いと下書き明細を複数フィールドに分割し(各≤1024)、往復で復元できる", () => {
+    const dates = seqDates("2026-09-01", 90); // 3ヶ月ぶん
+    const event = eventOf(dates);
+    const draft = draftOf(dates.map((d) => [d, "no"] as [string, DraftKind]));
+    const payload = renderAnswerPanel(event, draft, 0, []);
+
+    const detailFields = (firstEmbed(payload).fields ?? []).filter((f) =>
+      f.name.startsWith("📝 回答の下書き"),
+    );
+    expect(detailFields.length).toBeGreaterThan(1);
+    for (const f of detailFields) {
+      expect(f.value.length).toBeLessThanOrEqual(1024);
+    }
+
+    const parsed = parseAnswerPanel(payload, event);
+    expect(parsed.draft.size).toBe(90);
+    expect([...parsed.draft.values()].every((k) => k === "no")).toBe(true);
   });
 
   it("凡例の『不可』『未定』の文字を下書きとして誤読しない", () => {

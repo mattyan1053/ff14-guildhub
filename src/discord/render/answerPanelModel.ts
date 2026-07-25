@@ -161,11 +161,13 @@ const NO_MARK = "不可";
 const MAYBE_MARK = "未定";
 const DATE_PATTERN = /\d{4}-\d{2}-\d{2}/g;
 
-/**
- * 下書きの例外(attend 以外)を種別ごとに列挙した真実源テキストを作る。
- * 順序: 不可 → 未定 → 時刻(昇順)。attend(参加可)は既定なので出さない。
- */
-export function draftDetailText(draft: Draft): string {
+interface DetailGroup {
+  readonly marker: string;
+  readonly dates: string[];
+}
+
+/** 例外を種別ごと(不可 → 未定 → 時刻昇順)にまとめる。各 marker は行頭の記号。 */
+function detailGroups(draft: Draft): DetailGroup[] {
   const no: string[] = [];
   const maybe: string[] = [];
   const times = new Map<number, string[]>();
@@ -182,19 +184,70 @@ export function draftDetailText(draft: Draft): string {
       times.set(kind.startMinute, list);
     }
   }
-  const lines: string[] = [];
+  const groups: DetailGroup[] = [];
   if (no.length > 0) {
-    lines.push(`${NO_MARK} … ${no.join(", ")}`);
+    groups.push({ marker: NO_MARK, dates: no });
   }
   if (maybe.length > 0) {
-    lines.push(`${MAYBE_MARK} … ${maybe.join(", ")}`);
+    groups.push({ marker: MAYBE_MARK, dates: maybe });
   }
   for (const minute of [...times.keys()].sort((a, b) => a - b)) {
-    lines.push(
-      `${hhmm(minute)} … ${(times.get(minute) as string[]).join(", ")}`,
-    );
+    groups.push({ marker: hhmm(minute), dates: times.get(minute) as string[] });
   }
-  return lines.join("\n");
+  return groups;
+}
+
+/**
+ * 下書きの例外(attend 以外)を種別ごとに1行で列挙した真実源テキスト。
+ * 順序: 不可 → 未定 → 時刻(昇順)。attend(参加可)は既定なので出さない。
+ */
+export function draftDetailText(draft: Draft): string {
+  return detailGroups(draft)
+    .map((g) => `${g.marker} … ${g.dates.join(", ")}`)
+    .join("\n");
+}
+
+/**
+ * 下書き明細を、各要素が maxChars 以下になるよう分割した文字列群にする。
+ * Embed フィールド(1024字上限)を跨ぐために、1種別の日付が多いと同じ marker の行を
+ * 複数に割る。連結すれば parseDraftDetail で元に戻る(往復可能)。
+ */
+export function draftDetailChunks(draft: Draft, maxChars: number): string[] {
+  // まず「marker … 日付…」の行に分割(1行が maxChars を超えないよう日付を割る)。
+  const lines: string[] = [];
+  for (const group of detailGroups(draft)) {
+    let chunk: string[] = [];
+    const flush = () => {
+      if (chunk.length > 0) {
+        lines.push(`${group.marker} … ${chunk.join(", ")}`);
+        chunk = [];
+      }
+    };
+    for (const date of group.dates) {
+      const tentative = `${group.marker} … ${[...chunk, date].join(", ")}`;
+      if (tentative.length > maxChars && chunk.length > 0) {
+        flush();
+      }
+      chunk.push(date);
+    }
+    flush();
+  }
+  // 行を maxChars 以下のフィールド値へ詰める。
+  const values: string[] = [];
+  let current = "";
+  for (const line of lines) {
+    const next = current === "" ? line : `${current}\n${line}`;
+    if (next.length > maxChars && current !== "") {
+      values.push(current);
+      current = line;
+    } else {
+      current = next;
+    }
+  }
+  if (current !== "") {
+    values.push(current);
+  }
+  return values;
 }
 
 /** draftDetailText の逆。例外の日付→種別 だけを返す(attend は含まない)。 */

@@ -18,7 +18,7 @@ import {
   type Draft,
   type DraftKind,
   daysInWeek,
-  draftDetailText,
+  draftDetailChunks,
   eventTimes,
   hhmm,
   initialDraft,
@@ -39,9 +39,15 @@ export const ANSWER_APPLY_PREFIX = "sch:v1:ans:apply:";
 export const ANSWER_DONE_PREFIX = "sch:v1:ans:done:";
 export const ANSWER_CLOSE = "sch:v1:ans:close";
 
-const DETAIL_FIELD_NAME = "📝 回答の下書き(完了で確定)";
+// 下書き明細フィールド。1024字上限を跨ぐと複数フィールドに分割するので、名前は
+// この接頭辞で始める(parse は接頭辞一致で全部集めて連結する)。
+const DETAIL_FIELD_PREFIX = "📝 回答の下書き";
+const DETAIL_FIELD_NAME = `${DETAIL_FIELD_PREFIX}(完了で確定)`;
+const DETAIL_FIELD_CONT = `${DETAIL_FIELD_PREFIX}(続き)`;
 const DETAIL_EMPTY =
   "すべて参加可(いつでも)。例外があれば日ボタンで選んでください。";
+// Embed フィールド値の上限は1024字。余裕をもって分割する。
+const MAX_FIELD_VALUE = 1000;
 const LEGEND_FIELD_NAME = "凡例(背景色=あなたの回答)";
 
 // 表示専用の4状態カラー(下書き明細が真実源なので色は判別できれば足りる)。
@@ -154,6 +160,18 @@ function buildLegend(event: ScheduleEvent): { name: string; value: string } {
     name: LEGEND_FIELD_NAME,
     value: `\`\`\`ansi\n${parts.join("  ")}\n\`\`\``,
   };
+}
+
+/** 下書き明細フィールド(1024字上限を跨ぐと複数フィールドに分割)。空なら案内1つ。 */
+function buildDetailFields(draft: Draft): { name: string; value: string }[] {
+  const chunks = draftDetailChunks(draft, MAX_FIELD_VALUE);
+  if (chunks.length === 0) {
+    return [{ name: DETAIL_FIELD_NAME, value: DETAIL_EMPTY }];
+  }
+  return chunks.map((value, index) => ({
+    name: index === 0 ? DETAIL_FIELD_NAME : DETAIL_FIELD_CONT,
+    value,
+  }));
 }
 
 type Row = ActionRowBuilder<MessageActionRowComponentBuilder>;
@@ -278,16 +296,16 @@ export function renderAnswerPanel(
   const weekStart = weeks[clampedIndex] ?? weeks[0] ?? "";
   const weekDays = weekStart ? daysInWeek(dates, weekStart) : [];
 
-  const detail = draftDetailText(draft);
   const embed = new EmbedBuilder()
     .setTitle(`📝 ${event.title}  #${event.guildSeq} ・ あなたの回答`)
     .setDescription(
       "未入力の日は「いつでも参加可」。例外の日を下の日ボタンで選び、種別を選んで「完了」を押してください。",
     )
-    .addFields(...buildCalendarFields(draft), buildLegend(event), {
-      name: DETAIL_FIELD_NAME,
-      value: detail.length > 0 ? detail : DETAIL_EMPTY,
-    });
+    .addFields(
+      ...buildCalendarFields(draft),
+      buildLegend(event),
+      ...buildDetailFields(draft),
+    );
 
   return {
     embeds: [embed],
@@ -347,8 +365,11 @@ function detailFieldText(payload: BaseMessageOptions): string {
   const embed = toData(payload.embeds?.[0]) as {
     fields?: { name?: string; value?: string }[];
   };
-  const field = (embed.fields ?? []).find((f) => f.name === DETAIL_FIELD_NAME);
-  return field?.value ?? "";
+  // 分割された明細フィールドを接頭辞一致で全部集めて連結する。
+  return (embed.fields ?? [])
+    .filter((f) => (f.name ?? "").startsWith(DETAIL_FIELD_PREFIX))
+    .map((f) => f.value ?? "")
+    .join("\n");
 }
 
 /** 週ナビの前/次インデックスから現在の週インデックスを復元する(ナビ無し=0)。 */
