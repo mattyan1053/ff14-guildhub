@@ -25,6 +25,10 @@ import type { makeGetScheduleSummary } from "../../../application/schedule/getSc
 import type { makeListScheduleEvents } from "../../../application/schedule/listScheduleEvents.js";
 import type { makeShowScheduleEvent } from "../../../application/schedule/showScheduleEvent.js";
 import {
+  canDeleteEvent,
+  type DeleteActor,
+} from "../../../domain/schedule/authorization.js";
+import {
   datesBetween,
   weekWindow,
 } from "../../../domain/schedule/datePresets.js";
@@ -495,6 +499,7 @@ export async function handleBuilderSubmit(
     const message = await channel.send(renderPublicMessage(summary));
     await deps.attachScheduleMessage({
       eventId: summary.event.id,
+      channelId,
       messageId: message.id,
     });
     await interaction.editReply({
@@ -725,6 +730,7 @@ export async function handleShow(
   const message = await channel.send(renderPublicMessage(summary));
   await deps.attachScheduleMessage({
     eventId: summary.event.id,
+    channelId,
     messageId: message.id,
   });
   await interaction.editReply({ content: `#${guildSeq} を再表示しました。` });
@@ -762,6 +768,7 @@ export async function handleListSelect(
   const message = await channel.send(renderPublicMessage(summary));
   await deps.attachScheduleMessage({
     eventId: summary.event.id,
+    channelId: interaction.channelId,
     messageId: message.id,
   });
   await interaction.editReply({
@@ -771,18 +778,16 @@ export async function handleListSelect(
 
 // ── 削除 ─────────────────────────────────────────────
 
-/** 作成者本人、または ManageEvents 権限を持つメンバーだけが削除できる。 */
-function canDelete(
+/** Discord の権限を、ドメインが扱う素の DeleteActor へマッピングする。 */
+function deleteActor(
   interaction: ChatInputCommandInteraction | ButtonInteraction,
-  creatorId: string,
-): boolean {
-  if (interaction.user.id === creatorId) {
-    return true;
-  }
-  return (
-    interaction.memberPermissions?.has(PermissionFlagsBits.ManageEvents) ??
-    false
-  );
+): DeleteActor {
+  return {
+    userId: interaction.user.id,
+    hasManagePermission:
+      interaction.memberPermissions?.has(PermissionFlagsBits.ManageEvents) ??
+      false,
+  };
 }
 
 /**
@@ -812,7 +817,8 @@ export async function handleDelete(
     });
     return;
   }
-  if (!canDelete(interaction, event.creatorId)) {
+  // 確認パネルを出す前の UX ゲート(最終的な強制はユースケース側)。
+  if (!canDeleteEvent(event, deleteActor(interaction))) {
     await interaction.reply({
       content:
         "この日程調整を削除できるのは、作成者本人または「イベントの管理」権限を持つ人だけです。",
@@ -840,7 +846,7 @@ export async function handleDelete(
   });
 }
 
-/** 確認パネルの「削除する」。権限を再判定して物理削除し、公開メッセージも消す。 */
+/** 確認パネルの「削除する」。ユースケースが権限判定と物理削除を行い、その後に公開メッセージを消す。 */
 export async function handleDeleteConfirm(
   interaction: ButtonInteraction,
   eventId: string,
@@ -853,9 +859,12 @@ export async function handleDeleteConfirm(
     });
     return;
   }
-  // 確認表示から確定までの間に前提が変わりうるため、確定時にも読み直して権限を再判定する。
-  const summary = await deps.getScheduleSummary({ eventId });
-  if (!summary) {
+  // 権限判定と削除はユースケース内で完結する(破壊操作が権限チェックを迂回しない)。
+  const result = await deps.deleteScheduleEvent({
+    eventId,
+    actor: deleteActor(interaction),
+  });
+  if (result.outcome === "not_found") {
     await interaction.update({
       content: "この日程調整は既に削除されています。",
       embeds: [],
@@ -863,7 +872,7 @@ export async function handleDeleteConfirm(
     });
     return;
   }
-  if (!canDelete(interaction, summary.event.creatorId)) {
+  if (result.outcome === "forbidden") {
     await interaction.update({
       content:
         "この日程調整を削除できるのは、作成者本人または「イベントの管理」権限を持つ人だけです。",
@@ -873,25 +882,19 @@ export async function handleDeleteConfirm(
     return;
   }
 
-  const deleted = await deps.deleteScheduleEvent({ eventId });
-  if (!deleted) {
-    await interaction.update({
-      content: "この日程調整は既に削除されています。",
-      embeds: [],
-      components: [],
-    });
-    return;
-  }
-  await deletePublicMessage(
-    interaction.client,
-    deleted.channelId,
-    deleted.messageId,
-  );
+  // DB 側は削除済み。先に確認応答を確定させてから、時間のかかる公開メッセージ削除を行う。
+  // (メッセージ削除が Discord の応答期限を超えても「インタラクション失敗」を出さないため)
+  const { event } = result;
   await interaction.update({
-    content: `#${deleted.guildSeq}「${deleted.title}」を削除しました。`,
+    content: `#${event.guildSeq}「${event.title}」を削除しました。`,
     embeds: [],
     components: [],
   });
+  await deletePublicMessage(
+    interaction.client,
+    event.channelId,
+    event.messageId,
+  );
 }
 
 /** 確認パネルの「やめる」。何もせずパネルを畳む。 */

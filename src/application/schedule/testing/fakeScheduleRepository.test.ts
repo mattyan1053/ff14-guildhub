@@ -100,13 +100,15 @@ describe("createFakeScheduleRepository", () => {
     expect(await repo.findById("missing")).toBeNull();
   });
 
-  it("setMessageId で messageId を更新する", async () => {
+  it("attachMessage で channelId と messageId を更新する", async () => {
     const repo = createFakeScheduleRepository();
     await repo.create(event("e1", "g1", 1));
 
-    await repo.setMessageId("e1", "m1");
+    await repo.attachMessage("e1", "c2", "m1");
 
-    expect((await repo.findById("e1"))?.messageId).toBe("m1");
+    const stored = await repo.findById("e1");
+    expect(stored?.messageId).toBe("m1");
+    expect(stored?.channelId).toBe("c2");
   });
 
   it("upsertResponse は (candidateId, userId) で置換する", async () => {

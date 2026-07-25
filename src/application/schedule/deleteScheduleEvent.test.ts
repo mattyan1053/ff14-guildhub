@@ -40,17 +40,52 @@ function seededEvent(): ScheduleEvent {
 }
 
 describe("makeDeleteScheduleEvent", () => {
-  it("既存イベントを削除し、削除した ScheduleEvent を返す", async () => {
+  it("作成者が削除すると deleted を返し、消した event を渡す", async () => {
     const repository = createFakeScheduleRepository();
     repository.seed(seededEvent());
     const deleteScheduleEvent = makeDeleteScheduleEvent({ repository });
 
-    const deleted = await deleteScheduleEvent({ eventId: "event-1" });
+    const result = await deleteScheduleEvent({
+      eventId: "event-1",
+      actor: { userId: "creator-1", hasManagePermission: false },
+    });
 
+    expect(result.outcome).toBe("deleted");
     // 呼び出し側が messageId を使って公開メッセージを消せるよう、消した event を返す
-    expect(deleted).not.toBeNull();
-    expect(deleted?.id).toBe("event-1");
-    expect(deleted?.messageId).toBe("message-1");
+    if (result.outcome === "deleted") {
+      expect(result.event.id).toBe("event-1");
+      expect(result.event.messageId).toBe("message-1");
+    }
+  });
+
+  it("管理権限を持てば作成者でなくても削除できる", async () => {
+    const repository = createFakeScheduleRepository();
+    repository.seed(seededEvent());
+    const deleteScheduleEvent = makeDeleteScheduleEvent({ repository });
+
+    const result = await deleteScheduleEvent({
+      eventId: "event-1",
+      actor: { userId: "someone-else", hasManagePermission: true },
+    });
+
+    expect(result.outcome).toBe("deleted");
+    expect(await repository.findById("event-1")).toBeNull();
+  });
+
+  it("作成者でも管理権限でもなければ forbidden を返し、削除しない", async () => {
+    const repository = createFakeScheduleRepository();
+    repository.seed(seededEvent());
+    const deleteScheduleEvent = makeDeleteScheduleEvent({ repository });
+
+    const result = await deleteScheduleEvent({
+      eventId: "event-1",
+      actor: { userId: "someone-else", hasManagePermission: false },
+    });
+
+    expect(result.outcome).toBe("forbidden");
+    // 権限が無いので消えていない
+    expect(await repository.findById("event-1")).not.toBeNull();
+    expect(repository.allEvents()).toHaveLength(1);
   });
 
   it("削除後は repository からイベントと responses が消えている", async () => {
@@ -66,21 +101,27 @@ describe("makeDeleteScheduleEvent", () => {
     });
     const deleteScheduleEvent = makeDeleteScheduleEvent({ repository });
 
-    await deleteScheduleEvent({ eventId: "event-1" });
+    await deleteScheduleEvent({
+      eventId: "event-1",
+      actor: { userId: "creator-1", hasManagePermission: false },
+    });
 
     expect(await repository.findById("event-1")).toBeNull();
     expect(repository.allEvents()).toHaveLength(0);
     expect(await repository.listResponses("event-1")).toHaveLength(0);
   });
 
-  it("存在しない eventId は削除せず null を返す", async () => {
+  it("存在しない eventId は not_found を返す", async () => {
     const repository = createFakeScheduleRepository();
     repository.seed(seededEvent());
     const deleteScheduleEvent = makeDeleteScheduleEvent({ repository });
 
-    const deleted = await deleteScheduleEvent({ eventId: "missing" });
+    const result = await deleteScheduleEvent({
+      eventId: "missing",
+      actor: { userId: "creator-1", hasManagePermission: true },
+    });
 
-    expect(deleted).toBeNull();
+    expect(result.outcome).toBe("not_found");
     // 他のイベントは巻き込まれない
     expect(await repository.findById("event-1")).not.toBeNull();
     expect(repository.allEvents()).toHaveLength(1);

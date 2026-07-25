@@ -41,17 +41,20 @@ function seededEvent(): ScheduleEvent {
 }
 
 describe("makeAttachScheduleMessage", () => {
-  it("イベントに公開メッセージIDを紐づける", async () => {
+  it("イベントに公開メッセージの投稿先チャンネルとIDを紐づける", async () => {
     const repository = createFakeScheduleRepository();
     repository.seed(seededEvent());
     const attachScheduleMessage = makeAttachScheduleMessage({ repository });
 
+    // 別チャンネルに再表示したケース(channel-1 で作成 → channel-2 に投稿)。
     await attachScheduleMessage({
       eventId: "event-1",
+      channelId: "channel-2",
       messageId: "message-123",
     });
     const stored = await repository.findById("event-1");
 
     expect(stored?.messageId).toBe("message-123");
+    expect(stored?.channelId).toBe("channel-2");
   });
 });

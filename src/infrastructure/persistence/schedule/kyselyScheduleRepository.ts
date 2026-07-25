@@ -145,10 +145,14 @@ export function createKyselyScheduleRepository(
       await db.deleteFrom("events").where("id", "=", eventId).execute();
     },
 
-    async setMessageId(eventId: string, messageId: string): Promise<void> {
+    async attachMessage(
+      eventId: string,
+      channelId: string,
+      messageId: string,
+    ): Promise<void> {
       await db
         .updateTable("events")
-        .set({ message_id: messageId })
+        .set({ channel_id: channelId, message_id: messageId })
         .where("id", "=", eventId)
         .execute();
     },

@@ -100,12 +100,16 @@ export function createFakeScheduleRepository(): FakeScheduleRepository {
       return Promise.resolve();
     },
 
-    setMessageId(eventId: string, messageId: string): Promise<void> {
+    attachMessage(
+      eventId: string,
+      channelId: string,
+      messageId: string,
+    ): Promise<void> {
       const event = events.get(eventId);
       if (!event) {
         throw new Error(`event not found: ${eventId}`);
       }
-      events.set(eventId, { ...event, messageId });
+      events.set(eventId, { ...event, channelId, messageId });
       return Promise.resolve();
     },
 

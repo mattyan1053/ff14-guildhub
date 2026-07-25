@@ -325,16 +325,18 @@ describe("createKyselyScheduleRepository", () => {
     });
   });
 
-  describe("setMessageId", () => {
-    it("message_id を更新し findById に反映する", async () => {
+  describe("attachMessage", () => {
+    it("channel_id と message_id を更新し findById に反映する", async () => {
       db = await setup();
       const repo = createKyselyScheduleRepository(db);
       const event = buildEvent();
       await repo.create(event);
 
-      await repo.setMessageId(event.id, "message-99");
+      await repo.attachMessage(event.id, "channel-99", "message-99");
 
-      expect((await repo.findById(event.id))?.messageId).toBe("message-99");
+      const stored = await repo.findById(event.id);
+      expect(stored?.messageId).toBe("message-99");
+      expect(stored?.channelId).toBe("channel-99");
     });
   });
 

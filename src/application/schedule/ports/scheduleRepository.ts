@@ -36,7 +36,12 @@ export interface ScheduleRepository {
   listByGuild(guildId: string): Promise<ScheduleEventListItem[]>;
   /** イベントを削除する(候補・選択肢・回答は cascade で消える)。存在しない id は no-op。 */
   delete(eventId: string): Promise<void>;
-  setMessageId(eventId: string, messageId: string): Promise<void>;
+  /** 公開メッセージの投稿先(channel)と id を紐づける。再表示で別チャンネルに投稿されたら channel も更新する。 */
+  attachMessage(
+    eventId: string,
+    channelId: string,
+    messageId: string,
+  ): Promise<void>;
   /** (candidateId, userId) で upsert */
   upsertResponse(input: UpsertResponseInput): Promise<void>;
   /** 複数の (candidateId, userId) を1トランザクションで一括 upsert(全部成功か全部失敗) */
