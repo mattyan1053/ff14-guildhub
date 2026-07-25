@@ -13,6 +13,9 @@ export interface DecodedCustomId {
 const SEP = ":";
 const PREFIX = `${NAMESPACE}${SEP}${VERSION}`;
 
+/** 一覧の選択メニューの custom_id(選んだ eventId は value 側で運ぶ)。 */
+export const LIST_SELECT = `${PREFIX}${SEP}list`;
+
 /** "sch:v1:panel:<eventId>" */
 export function encodePanel(eventId: string): string {
   return `${PREFIX}${SEP}panel${SEP}${eventId}`;

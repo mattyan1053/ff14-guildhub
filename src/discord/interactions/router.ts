@@ -6,7 +6,7 @@ import {
   type ModalSubmitInteraction,
   type StringSelectMenuInteraction,
 } from "discord.js";
-import { decode } from "../customId.js";
+import { decode, LIST_SELECT } from "../customId.js";
 import {
   BUILDER_CANCEL_BUTTON,
   BUILDER_DAY_PREFIX,
@@ -33,6 +33,7 @@ import {
   handleBuilderTitleModal,
   handleCreateCommand,
   handleList,
+  handleListSelect,
   handlePanelOpen,
   handlePanelPage,
   handleShow,
@@ -106,6 +107,10 @@ async function routeSelect(
   interaction: StringSelectMenuInteraction,
   deps: ScheduleInteractionDeps,
 ): Promise<void> {
+  if (interaction.customId === LIST_SELECT) {
+    await handleListSelect(interaction, deps);
+    return;
+  }
   const decoded = decode(interaction.customId);
   if (decoded?.action === "answer" && decoded.candidateId) {
     await handleAnswer(interaction, decoded.eventId, decoded.candidateId, deps);
