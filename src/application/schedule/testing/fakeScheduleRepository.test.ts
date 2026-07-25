@@ -91,6 +91,33 @@ describe("createFakeScheduleRepository", () => {
     expect(responses[0]?.responseOptionId).toBe("no");
   });
 
+  it("upsertResponses は複数を一括保存する", async () => {
+    const repo = createFakeScheduleRepository();
+    await repo.create(event("e1", "g1", 1));
+
+    await repo.upsertResponses([
+      {
+        id: "r1",
+        eventId: "e1",
+        candidateId: "c0",
+        responseOptionId: "yes",
+        userId: "u1",
+        now: FIXED_NOW,
+      },
+      {
+        id: "r2",
+        eventId: "e1",
+        candidateId: "c1",
+        responseOptionId: "no",
+        userId: "u1",
+        now: FIXED_NOW,
+      },
+    ]);
+
+    const responses = await repo.listResponses("e1");
+    expect(responses).toHaveLength(2);
+  });
+
   it("listResponses は挿入順を保つ", async () => {
     const repo = createFakeScheduleRepository();
     await repo.create(event("e1", "g1", 1));

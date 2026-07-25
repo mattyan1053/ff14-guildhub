@@ -37,6 +37,32 @@ async function loadEvent(
   return toDomainEvent(row, candidates, options);
 }
 
+/** 1件の応答を upsert する(db でもトランザクションでも呼べるよう executor を受ける)。 */
+async function upsertResponseWith(
+  executor: AppDatabase,
+  input: UpsertResponseInput,
+): Promise<void> {
+  const iso = input.now.toISOString();
+  await executor
+    .insertInto("responses")
+    .values({
+      id: input.id,
+      event_id: input.eventId,
+      candidate_id: input.candidateId,
+      response_option_id: input.responseOptionId,
+      user_id: input.userId,
+      created_at: iso,
+      updated_at: iso,
+    })
+    .onConflict((oc) =>
+      oc.columns(["candidate_id", "user_id"]).doUpdateSet({
+        response_option_id: input.responseOptionId,
+        updated_at: iso,
+      }),
+    )
+    .execute();
+}
+
 /**
  * Kysely による ScheduleRepository の実装。
  * テーブル構造はこのモジュールの外へ漏らさない(ドメイン型で受け渡す)。
@@ -116,25 +142,21 @@ export function createKyselyScheduleRepository(
     },
 
     async upsertResponse(input: UpsertResponseInput): Promise<void> {
-      const iso = input.now.toISOString();
-      await db
-        .insertInto("responses")
-        .values({
-          id: input.id,
-          event_id: input.eventId,
-          candidate_id: input.candidateId,
-          response_option_id: input.responseOptionId,
-          user_id: input.userId,
-          created_at: iso,
-          updated_at: iso,
-        })
-        .onConflict((oc) =>
-          oc.columns(["candidate_id", "user_id"]).doUpdateSet({
-            response_option_id: input.responseOptionId,
-            updated_at: iso,
-          }),
-        )
-        .execute();
+      await upsertResponseWith(db, input);
+    },
+
+    async upsertResponses(
+      inputs: readonly UpsertResponseInput[],
+    ): Promise<void> {
+      if (inputs.length === 0) {
+        return;
+      }
+      // 「完了」の全候補ぶんを1トランザクションで書く(部分保存や割り込み混在を防ぐ)。
+      await db.transaction().execute(async (trx) => {
+        for (const input of inputs) {
+          await upsertResponseWith(trx, input);
+        }
+      });
     },
 
     async listResponses(eventId: string): Promise<Response[]> {

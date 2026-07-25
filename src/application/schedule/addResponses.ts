@@ -58,16 +58,17 @@ export function makeAddResponses(
       throw new ScheduleValidationError(issues);
     }
 
-    for (const entry of input.entries) {
-      await deps.repository.upsertResponse({
+    // 全候補ぶんを1トランザクションで書く(部分保存や割り込み混在を防ぐ)。
+    await deps.repository.upsertResponses(
+      input.entries.map((entry) => ({
         id: deps.newId(),
         eventId: event.id,
         candidateId: entry.candidateId,
         responseOptionId: entry.responseOptionId,
         userId: input.userId,
         now: deps.now(),
-      });
-    }
+      })),
+    );
 
     const responses = await deps.repository.listResponses(event.id);
     return { summary: summarizeResponses(event, responses) };
