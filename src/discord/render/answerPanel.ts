@@ -102,7 +102,10 @@ function kindMark(kind: DraftKind): string {
   return "◯";
 }
 
-/** 候補日(YYYY-MM-DD)を月ごとに ANSI カレンダーへ。候補日を下書き種別で塗る。 */
+/**
+ * 候補日(YYYY-MM-DD)を月ごとに ANSI カレンダーへ。自分が入れた例外(不可/未定/時刻)だけを
+ * 塗り、参加可/未入力は無印にする(カレンダーの色=自分が入力した内容になるように)。
+ */
 function buildCalendarFields(draft: Draft): { name: string; value: string }[] {
   const byMonth = new Map<string, Map<number, DraftKind>>();
   for (const [value, kind] of draft) {
@@ -112,7 +115,10 @@ function buildCalendarFields(draft: Draft): { name: string; value: string }[] {
     }
     const key = `${match[1]}-${match[2]}`;
     const map = byMonth.get(key) ?? new Map<number, DraftKind>();
-    map.set(Number(match[3]), kind);
+    // 参加可(いつでも/未入力)は塗らない。月自体は候補があれば必ず表示する。
+    if (kind !== "attend") {
+      map.set(Number(match[3]), kind);
+    }
     byMonth.set(key, map);
   }
   return [...byMonth.keys()].sort().map((key) => {
@@ -149,16 +155,16 @@ function monthGrid(
   return rows.join("\n");
 }
 
-/** 使う4状態(+存在する時刻)の凡例。 */
+/** 自分が入れた例外の色の凡例。参加可/未入力は無印(色なし)であることも示す。 */
 function buildLegend(event: ScheduleEvent): { name: string; value: string } {
-  const parts = [`${SGR_ATTEND} 参加可 ${RESET}`];
+  const parts: string[] = [];
   if (eventTimes(event).length > 0) {
     parts.push(`${SGR_TIME} 時刻指定 ${RESET}`);
   }
   parts.push(`${SGR_MAYBE} 未定 ${RESET}`, `${SGR_NO} 不可 ${RESET}`);
   return {
     name: LEGEND_FIELD_NAME,
-    value: `\`\`\`ansi\n${parts.join("  ")}\n\`\`\``,
+    value: `\`\`\`ansi\n${parts.join("  ")}\n\`\`\`\n無印=いつでも参加可(未入力)`,
   };
 }
 
