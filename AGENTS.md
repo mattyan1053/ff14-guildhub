@@ -13,8 +13,7 @@ FF14の固定活動を中心としたDiscordコミュニティ向け運営支援
 - あとから覆すコストが高い判断(技術選定、データモデル、アーキテクチャ境界、外部に見える仕様など)を行う前に、ADRの起票を提案すること。ADRを起票するときは `grill-me` スキルで決定を深掘りしてから書く。
 - 新機能・バグ修正の実装では、実装に着手する前に `test-writer` サブエージェントにテストを書かせる(テストファースト)。実装はそのテストを通すことをゴールにする。
 - push・PR作成の前に `local-ci` スキルでCI相当のチェックを通す。
-- 些細な実装判断はADRにしない。コードとテストで表現する。
-- ADRは「決定の記録」であり仕様書ではない。実装の変化にADRを追従させない。決定自体が覆った場合のみ、新しいADRで置き換える(supersede)。
+- コミットメッセージは gitmoji + 英語(例: `✨ Add /schedule delete`)、PRはタイトル・本文とも日本語で書く。
 
 ## アーキテクチャ境界(要点)
 
@@ -25,15 +24,7 @@ FF14の固定活動を中心としたDiscordコミュニティ向け運営支援
 
 ## 開発コマンド
 
-```bash
-pnpm dev        # tsx watchでBotを起動
-pnpm build      # tsconfig.build.jsonでdist/へビルド
-pnpm start      # ビルド済みアプリケーションの起動
-pnpm test       # Vitest
-pnpm lint       # Biome(format + lintチェック)
-pnpm format     # Biomeフォーマット適用
-pnpm typecheck  # tsc --noEmit
-```
+利用可能なスクリプトは `package.json` の `scripts` を参照する。
 
 コマンドは開発用composeコンテナ内で実行する(ホストにNode.js/pnpmを前提としない)。`.claude/scripts/dc.sh` がラッパーで、`bot`コンテナが起動中なら`exec`、停止中なら使い捨てコンテナで実行する:
 
@@ -42,4 +33,4 @@ pnpm typecheck  # tsc --noEmit
 ./.claude/scripts/dc.sh pnpm exec vitest run src/foo.test.ts
 ```
 
-コード変更後は lint / typecheck / test を通すこと。CI相当のチェック一式は `local-ci` スキルでまとめて実行できる。
+コード変更後は typecheck / test を通すこと(lintは編集のたびにフックが自動実行する)。CI相当のチェック一式は `local-ci` スキルでまとめて実行できる。
