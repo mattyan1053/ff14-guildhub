@@ -140,6 +140,32 @@ export function createKyselyScheduleRepository(
       }));
     },
 
+    async listOpenEventsByCandidateDate(
+      guildId: string,
+      startsAt: Date,
+    ): Promise<ScheduleEvent[]> {
+      const rows = await db
+        .selectFrom("events")
+        .selectAll()
+        .where("guild_id", "=", guildId)
+        .where("status", "=", "open")
+        .where(({ exists, selectFrom }) =>
+          exists(
+            selectFrom("candidates")
+              .select("candidates.id")
+              .whereRef("candidates.event_id", "=", "events.id")
+              .where("candidates.starts_at", "=", startsAt.toISOString()),
+          ),
+        )
+        .orderBy("guild_seq", "asc")
+        .execute();
+      const events: ScheduleEvent[] = [];
+      for (const row of rows) {
+        events.push(await loadEvent(db, row));
+      }
+      return events;
+    },
+
     async delete(eventId: string): Promise<void> {
       // candidates / response_options / responses は FK の onDelete cascade で消える。
       await db.deleteFrom("events").where("id", "=", eventId).execute();

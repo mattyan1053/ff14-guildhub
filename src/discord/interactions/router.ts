@@ -49,6 +49,9 @@ import {
   handleList,
   handleListSelect,
   handlePanelOpen,
+  handleRemindOff,
+  handleRemindSet,
+  handleRemindStatus,
   handleShow,
   type ScheduleInteractionDeps,
 } from "./schedule/handlers.js";
@@ -61,6 +64,16 @@ async function routeCommand(
     return;
   }
   const sub = interaction.options.getSubcommand();
+  if (interaction.options.getSubcommandGroup(false) === "remind") {
+    if (sub === "set") {
+      await handleRemindSet(interaction, deps);
+    } else if (sub === "off") {
+      await handleRemindOff(interaction, deps);
+    } else if (sub === "status") {
+      await handleRemindStatus(interaction, deps);
+    }
+    return;
+  }
   if (sub === "create") {
     await handleCreateCommand(interaction);
   } else if (sub === "list") {

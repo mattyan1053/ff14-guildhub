@@ -53,12 +53,28 @@ interface GuildCountersTable {
   last_seq: number;
 }
 
+interface ReminderSettingsTable {
+  guild_id: string;
+  channel_id: string;
+  remind_minute: number;
+  created_at: string;
+  updated_at: string;
+}
+
+interface ReminderDeliveriesTable {
+  event_id: string;
+  date_value: string;
+  judged_at: string;
+}
+
 export interface DatabaseSchema {
   events: EventsTable;
   candidates: CandidatesTable;
   response_options: ResponseOptionsTable;
   responses: ResponsesTable;
   guild_counters: GuildCountersTable;
+  reminder_settings: ReminderSettingsTable;
+  reminder_deliveries: ReminderDeliveriesTable;
 }
 
 export type AppDatabase = Kysely<DatabaseSchema>;

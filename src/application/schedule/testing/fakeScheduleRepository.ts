@@ -13,6 +13,14 @@ export interface FakeScheduleRepository extends ScheduleRepository {
   seed(event: ScheduleEvent): void;
   /** テスト用: 保存済みイベント一覧 */
   allEvents(): ScheduleEvent[];
+  /**
+   * guild 内の open なイベントのうち、starts_at が一致する候補日を持つものを返す。
+   * ScheduleRepository ポートへ追加予定のメソッド(追加後この宣言は冗長になるが無害)。
+   */
+  listOpenEventsByCandidateDate(
+    guildId: string,
+    startsAt: Date,
+  ): Promise<ScheduleEvent[]>;
 }
 
 /**
@@ -127,6 +135,22 @@ export function createFakeScheduleRepository(): FakeScheduleRepository {
 
     listResponses(eventId: string): Promise<Response[]> {
       return Promise.resolve([...(responsesByEvent.get(eventId) ?? [])]);
+    },
+
+    listOpenEventsByCandidateDate(
+      guildId: string,
+      startsAt: Date,
+    ): Promise<ScheduleEvent[]> {
+      const time = startsAt.getTime();
+      const matched = [...events.values()].filter(
+        (event) =>
+          event.guildId === guildId &&
+          event.status === "open" &&
+          event.candidates.some(
+            (candidate) => candidate.startsAt?.getTime() === time,
+          ),
+      );
+      return Promise.resolve(matched);
     },
 
     seed(event: ScheduleEvent): void {
