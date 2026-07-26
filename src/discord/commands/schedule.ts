@@ -1,6 +1,7 @@
 import { SlashCommandBuilder } from "discord.js";
 
 export const SHOW_OPTION_NUMBER = "number";
+export const DELETE_OPTION_NUMBER = "number";
 
 // 作成のみ権限で絞りたいが setDefaultMemberPermissions はルートコマンド全体
 // (list/show を含む)に効いてしまうため、ここでは付けず handleCreateCommand で
@@ -24,6 +25,18 @@ export const scheduleCommand = new SlashCommandBuilder()
       .addIntegerOption((opt) =>
         opt
           .setName(SHOW_OPTION_NUMBER)
+          .setDescription("番号(/schedule list に出る番号)")
+          .setMinValue(1)
+          .setRequired(true),
+      ),
+  )
+  .addSubcommand((sub) =>
+    sub
+      .setName("delete")
+      .setDescription("番号で指定した日程調整を削除する")
+      .addIntegerOption((opt) =>
+        opt
+          .setName(DELETE_OPTION_NUMBER)
           .setDescription("番号(/schedule list に出る番号)")
           .setMinValue(1)
           .setRequired(true),

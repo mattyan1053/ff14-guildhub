@@ -64,7 +64,7 @@ export function makeCreateScheduleEvent(
     const timeSlots = parseTimeSlots(input.timeSlotLines);
     const responseOptions = buildResponseOptionSpecs(timeSlots);
 
-    const guildSeq = await deps.repository.nextGuildSeq(input.guildId);
+    const guildSeq = await deps.repository.allocateGuildSeq(input.guildId);
     const event = buildScheduleEvent(
       {
         guildId: input.guildId,

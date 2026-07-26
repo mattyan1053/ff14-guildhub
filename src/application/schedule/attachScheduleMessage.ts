@@ -6,8 +6,16 @@ export interface AttachScheduleMessageDeps {
 
 export function makeAttachScheduleMessage(
   deps: AttachScheduleMessageDeps,
-): (input: { eventId: string; messageId: string }) => Promise<void> {
+): (input: {
+  eventId: string;
+  channelId: string;
+  messageId: string;
+}) => Promise<void> {
   return async (input) => {
-    await deps.repository.setMessageId(input.eventId, input.messageId);
+    await deps.repository.attachMessage(
+      input.eventId,
+      input.channelId,
+      input.messageId,
+    );
   };
 }

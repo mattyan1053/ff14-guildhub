@@ -6,7 +6,7 @@ import {
   type ModalSubmitInteraction,
   type StringSelectMenuInteraction,
 } from "discord.js";
-import { decode, LIST_SELECT } from "../customId.js";
+import { DELETE_CANCEL, decode, LIST_SELECT } from "../customId.js";
 import {
   ANSWER_APPLY_PREFIX,
   ANSWER_CLOSE,
@@ -43,6 +43,9 @@ import {
   handleBuilderTitleButton,
   handleBuilderTitleModal,
   handleCreateCommand,
+  handleDelete,
+  handleDeleteCancel,
+  handleDeleteConfirm,
   handleList,
   handleListSelect,
   handlePanelOpen,
@@ -64,6 +67,8 @@ async function routeCommand(
     await handleList(interaction, deps);
   } else if (sub === "show") {
     await handleShow(interaction, deps);
+  } else if (sub === "delete") {
+    await handleDelete(interaction, deps);
   }
 }
 
@@ -96,6 +101,10 @@ async function routeButton(
     await handleAnswerClose(interaction);
     return;
   }
+  if (id === DELETE_CANCEL) {
+    await handleDeleteCancel(interaction);
+    return;
+  }
   switch (id) {
     case BUILDER_PERIOD_BUTTON:
       await handleBuilderPeriodButton(interaction);
@@ -119,6 +128,8 @@ async function routeButton(
   const decoded = decode(interaction.customId);
   if (decoded?.action === "panel") {
     await handlePanelOpen(interaction, decoded.eventId, deps);
+  } else if (decoded?.action === "delete") {
+    await handleDeleteConfirm(interaction, decoded.eventId, deps);
   }
 }
 

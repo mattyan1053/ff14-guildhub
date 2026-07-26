@@ -21,12 +21,17 @@ export interface FakeScheduleRepository extends ScheduleRepository {
 export function createFakeScheduleRepository(): FakeScheduleRepository {
   const events = new Map<string, ScheduleEvent>();
   const responsesByEvent = new Map<string, Response[]>();
+  // guild ごとの採番カウンタ。実装(migration バックフィル + guild_counters)を模す。
+  const counters = new Map<string, number>();
 
   function put(event: ScheduleEvent): void {
     events.set(event.id, event);
     if (!responsesByEvent.has(event.id)) {
       responsesByEvent.set(event.id, []);
     }
+    // seed / create された番号ぶんカウンタを底上げする(バックフィル相当)。
+    const current = counters.get(event.guildId) ?? 0;
+    counters.set(event.guildId, Math.max(current, event.guildSeq));
   }
 
   function doUpsert(input: UpsertResponseInput): void {
@@ -48,14 +53,11 @@ export function createFakeScheduleRepository(): FakeScheduleRepository {
   }
 
   return {
-    nextGuildSeq(guildId: string): Promise<number> {
-      let max = 0;
-      for (const event of events.values()) {
-        if (event.guildId === guildId && event.guildSeq > max) {
-          max = event.guildSeq;
-        }
-      }
-      return Promise.resolve(max + 1);
+    allocateGuildSeq(guildId: string): Promise<number> {
+      // 単調増加カウンタを +1 して払い出す。delete では減らない(再利用しない)。
+      const next = (counters.get(guildId) ?? 0) + 1;
+      counters.set(guildId, next);
+      return Promise.resolve(next);
     },
 
     create(event: ScheduleEvent): Promise<void> {
@@ -92,12 +94,22 @@ export function createFakeScheduleRepository(): FakeScheduleRepository {
       return Promise.resolve(items);
     },
 
-    setMessageId(eventId: string, messageId: string): Promise<void> {
+    delete(eventId: string): Promise<void> {
+      events.delete(eventId);
+      responsesByEvent.delete(eventId);
+      return Promise.resolve();
+    },
+
+    attachMessage(
+      eventId: string,
+      channelId: string,
+      messageId: string,
+    ): Promise<void> {
       const event = events.get(eventId);
       if (!event) {
         throw new Error(`event not found: ${eventId}`);
       }
-      events.set(eventId, { ...event, messageId });
+      events.set(eventId, { ...event, channelId, messageId });
       return Promise.resolve();
     },
 

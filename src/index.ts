@@ -3,6 +3,8 @@ import { Events } from "discord.js";
 import { makeAddResponses } from "./application/schedule/addResponses.js";
 import { makeAttachScheduleMessage } from "./application/schedule/attachScheduleMessage.js";
 import { makeCreateScheduleEvent } from "./application/schedule/createScheduleEvent.js";
+import { makeDeleteScheduleEvent } from "./application/schedule/deleteScheduleEvent.js";
+import { makeGetScheduleEventByNumber } from "./application/schedule/getScheduleEventByNumber.js";
 import { makeGetScheduleSummary } from "./application/schedule/getScheduleSummary.js";
 import { makeListScheduleEvents } from "./application/schedule/listScheduleEvents.js";
 import { makeShowScheduleEvent } from "./application/schedule/showScheduleEvent.js";
@@ -40,6 +42,8 @@ async function main(): Promise<void> {
     attachScheduleMessage: makeAttachScheduleMessage({ repository }),
     listScheduleEvents: makeListScheduleEvents({ repository }),
     showScheduleEvent: makeShowScheduleEvent({ repository }),
+    getScheduleEventByNumber: makeGetScheduleEventByNumber({ repository }),
+    deleteScheduleEvent: makeDeleteScheduleEvent({ repository }),
   });
 
   const client = createDiscordClient();
