@@ -74,7 +74,15 @@ async function main(): Promise<void> {
     onSendError: (error) => console.error("reminder: failed to send", error),
   });
   // 毎分tickで「設定時刻を過ぎて当日未判定」の分を判定・送信する(ADR 0011)。
-  // protect: 前のtickが終わるまで次を走らせない(重複実行の保護)。
+  // croner は fn の戻り値を await して protect(重複実行の保護)を判定するため、
+  // Promise を返さないと保護が効かない。tick 自身がエラーを飲み込む。
+  const reminderTick = async (): Promise<void> => {
+    try {
+      await runDueReminders();
+    } catch (error) {
+      console.error("reminder: tick failed", error);
+    }
+  };
   let reminderJob: Cron | null = null;
 
   client.once(Events.ClientReady, async (readyClient) => {
@@ -89,12 +97,12 @@ async function main(): Promise<void> {
     } catch (error) {
       console.error("discord: failed to register commands", error);
     }
-    reminderJob = new Cron("* * * * *", { protect: true }, () => {
-      void runDueReminders().catch((error: unknown) => {
-        console.error("reminder: tick failed", error);
-      });
-    });
+    reminderJob = new Cron("* * * * *", { protect: true }, reminderTick);
     console.log("reminder: scheduler started (every minute)");
+    // 起動直後に1回走らせる。JST日の最終分に復帰すると次のtick(00:00)では日付が
+    // 変わっており、当日中の追い送り(ADR 0011)が失われるため。
+    // trigger() 経由なら初回も protect の管理下に入り、直後のtickと重ならない。
+    await reminderJob.trigger();
   });
 
   client.on(Events.InteractionCreate, (interaction) => {
