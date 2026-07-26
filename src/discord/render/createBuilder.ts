@@ -8,7 +8,8 @@ import {
   formatDateLabel,
   startsAtFromDateValue,
 } from "../../domain/schedule/datePresets.js";
-import { pad2 } from "../../domain/schedule/time.js";
+import { parseReminderTime } from "../../domain/schedule/reminder.js";
+import { hhmm, pad2 } from "../../domain/schedule/time.js";
 import {
   type AnsiField,
   buildAnsiCalendarFields,
@@ -30,17 +31,22 @@ export const BUILDER_WEEK_PREFIX = "sch:v1:bld:week:";
 export const BUILDER_PERIOD_BUTTON = "sch:v1:bld:period";
 export const BUILDER_TITLE_BUTTON = "sch:v1:bld:title";
 export const BUILDER_SET_TIMES_BUTTON = "sch:v1:bld:settimes";
+export const BUILDER_REMIND_BUTTON = "sch:v1:bld:remind";
 export const BUILDER_SUBMIT_BUTTON = "sch:v1:bld:submit";
 export const BUILDER_CANCEL_BUTTON = "sch:v1:bld:cancel";
 
 export const BUILDER_TITLE_MODAL = "sch:v1:bld:title-modal";
 export const BUILDER_SET_TIMES_MODAL = "sch:v1:bld:settimes-modal";
 export const BUILDER_PERIOD_MODAL = "sch:v1:bld:period-modal";
+export const BUILDER_REMIND_MODAL = "sch:v1:bld:remind-modal";
 
 const SELECTED_FIELD_NAME = "候補日(カレンダー)";
 const SELECTED_FIELD_EMPTY = "（まだありません。日付ボタンで選択してください)";
 const TIME_FIELD_NAME = "候補時刻(任意)";
 const TIME_FIELD_EMPTY = "（指定なし。回答は ○いつでも / △未定 / ✖不可 のみ)";
+const REMIND_FIELD_NAME = "当日リマインド(任意)";
+const REMIND_FIELD_EMPTY =
+  "（なし。作成後に /schedule remind でも設定できます)";
 const TIME_PATTERN = /\d{1,2}:\d{2}/g;
 
 /**
@@ -102,6 +108,8 @@ export interface BuilderState {
   readonly selectedDates: readonly string[];
   /** 候補時刻 "HH:MM"(昇順。空=時刻指定なし)。Embed フィールドが真実源 */
   readonly timeSlots: readonly string[];
+  /** 当日リマインドの送信時刻(JSTの分)。null=リマインドなし。Embed フィールドが真実源 */
+  readonly remindMinute: number | null;
 }
 
 export interface CreateInputFromBuilder {
@@ -147,7 +155,7 @@ function pagingRow(state: BuilderState): Row {
 }
 
 /** 最上段:タイトル/説明の編集と期間の設定。 */
-function topActionRow(): Row {
+function topActionRow(state: BuilderState): Row {
   return row(
     new ButtonBuilder()
       .setCustomId(BUILDER_TITLE_BUTTON)
@@ -157,6 +165,15 @@ function topActionRow(): Row {
       .setCustomId(BUILDER_PERIOD_BUTTON)
       .setLabel("期間を設定")
       .setStyle(ButtonStyle.Secondary),
+    // 5アクションロウを使い切っているため、リマインドは行を増やさずここに置く(ADR 0012)。
+    new ButtonBuilder()
+      .setCustomId(BUILDER_REMIND_BUTTON)
+      .setLabel("当日リマインド")
+      .setStyle(
+        state.remindMinute === null
+          ? ButtonStyle.Secondary
+          : ButtonStyle.Success,
+      ),
   );
 }
 
@@ -189,6 +206,13 @@ export function renderCreateBuilder(state: BuilderState): BaseMessageOptions {
           ? state.timeSlots.join(", ")
           : TIME_FIELD_EMPTY,
     },
+    {
+      name: REMIND_FIELD_NAME,
+      value:
+        state.remindMinute === null
+          ? REMIND_FIELD_EMPTY
+          : `${hhmm(state.remindMinute)} にこのチャンネルへ送信`,
+    },
   );
   if (state.title !== null) {
     embed.setTitle(state.title);
@@ -200,7 +224,7 @@ export function renderCreateBuilder(state: BuilderState): BaseMessageOptions {
   return {
     embeds: [embed],
     components: [
-      topActionRow(),
+      topActionRow(state),
       ...dayRows(state.weekDays, selected),
       pagingRow(state),
       bottomActionRow(),
@@ -209,11 +233,27 @@ export function renderCreateBuilder(state: BuilderState): BaseMessageOptions {
   };
 }
 
-function embedFieldsText(payload: BaseMessageOptions): string {
+/**
+ * Embed のフィールドを name/value の組で読む。候補時刻とリマインド時刻はどちらも
+ * "HH:MM" 形式なので、全文スキャンではなくフィールド単位で読み分ける必要がある。
+ */
+function embedFields(
+  payload: BaseMessageOptions,
+): { name: string; value: string }[] {
   const embed = toData(payload.embeds?.[0]) as {
-    fields?: { value?: string }[];
+    fields?: { name?: string; value?: string }[];
   };
-  return (embed.fields ?? []).map((field) => field.value ?? "").join("\n");
+  return (embed.fields ?? []).map((field) => ({
+    name: field.name ?? "",
+    value: field.value ?? "",
+  }));
+}
+
+function fieldValue(
+  fields: readonly { name: string; value: string }[],
+  name: string,
+): string {
+  return fields.find((field) => field.name === name)?.value ?? "";
 }
 
 function readWeek(comps: RawComponent[]): {
@@ -251,7 +291,15 @@ export function parseBuilderState(payload: BaseMessageOptions): BuilderState {
   };
   const comps = flatComponents(payload);
   const week = readWeek(comps);
-  const fieldsText = embedFieldsText(payload);
+  const fields = embedFields(payload);
+  // 候補日カレンダーは月ごとに複数フィールドへ分かれるため、名前の前方一致でまとめて読む。
+  const calendarText = fields
+    .filter((field) => field.name.startsWith(SELECTED_FIELD_NAME))
+    .map((field) => field.value)
+    .join("\n");
+  const remindText = fieldValue(fields, REMIND_FIELD_NAME);
+  const remindMatch = TIME_PATTERN.exec(remindText);
+  TIME_PATTERN.lastIndex = 0;
 
   const weekDays: DayOption[] = comps
     .filter((c) => (c.custom_id ?? "").startsWith(BUILDER_DAY_PREFIX))
@@ -267,8 +315,11 @@ export function parseBuilderState(payload: BaseMessageOptions): BuilderState {
     canPrev: week.canPrev,
     canNext: week.canNext,
     weekDays,
-    selectedDates: parseSelectedDates(fieldsText),
-    timeSlots: (fieldsText.match(TIME_PATTERN) ?? []).sort(),
+    selectedDates: parseSelectedDates(calendarText),
+    timeSlots: (
+      fieldValue(fields, TIME_FIELD_NAME).match(TIME_PATTERN) ?? []
+    ).sort(),
+    remindMinute: remindMatch ? parseReminderTime(remindMatch[0]) : null,
   };
 }
 

@@ -20,9 +20,12 @@ import type { makeAddResponses } from "../../../application/schedule/addResponse
 import type { makeAttachScheduleMessage } from "../../../application/schedule/attachScheduleMessage.js";
 import type { makeCreateScheduleEvent } from "../../../application/schedule/createScheduleEvent.js";
 import type { makeDeleteScheduleEvent } from "../../../application/schedule/deleteScheduleEvent.js";
+import type { makeDisableEventReminder } from "../../../application/schedule/disableEventReminder.js";
+import type { makeGetEventReminder } from "../../../application/schedule/getEventReminder.js";
 import type { makeGetScheduleEventByNumber } from "../../../application/schedule/getScheduleEventByNumber.js";
 import type { makeGetScheduleSummary } from "../../../application/schedule/getScheduleSummary.js";
 import type { makeListScheduleEvents } from "../../../application/schedule/listScheduleEvents.js";
+import type { makeSetEventReminder } from "../../../application/schedule/setEventReminder.js";
 import type { makeShowScheduleEvent } from "../../../application/schedule/showScheduleEvent.js";
 import {
   canDeleteEvent,
@@ -34,11 +37,15 @@ import {
 } from "../../../domain/schedule/datePresets.js";
 import { ScheduleValidationError } from "../../../domain/schedule/errors.js";
 import { MAX_CANDIDATES } from "../../../domain/schedule/limits.js";
+import { parseReminderTime } from "../../../domain/schedule/reminder.js";
 import type { ScheduleSummary } from "../../../domain/schedule/summary.js";
 import { hhmm } from "../../../domain/schedule/time.js";
 import { parseTimeSlots } from "../../../domain/schedule/validation.js";
 import {
   DELETE_OPTION_NUMBER,
+  REMIND_OPTION_CHANNEL,
+  REMIND_OPTION_NUMBER,
+  REMIND_OPTION_TIME,
   SHOW_OPTION_NUMBER,
 } from "../../commands/schedule.js";
 import { DELETE_CANCEL, encodeDeleteConfirm } from "../../customId.js";
@@ -57,6 +64,7 @@ import { applyKind, commitEntries } from "../../render/answerPanelModel.js";
 import {
   BUILDER_DAY_PREFIX,
   BUILDER_PERIOD_MODAL,
+  BUILDER_REMIND_MODAL,
   BUILDER_SET_TIMES_MODAL,
   BUILDER_TITLE_MODAL,
   BUILDER_WEEK_PREFIX,
@@ -77,6 +85,9 @@ export interface ScheduleInteractionDeps {
   showScheduleEvent: ReturnType<typeof makeShowScheduleEvent>;
   getScheduleEventByNumber: ReturnType<typeof makeGetScheduleEventByNumber>;
   deleteScheduleEvent: ReturnType<typeof makeDeleteScheduleEvent>;
+  setEventReminder: ReturnType<typeof makeSetEventReminder>;
+  disableEventReminder: ReturnType<typeof makeDisableEventReminder>;
+  getEventReminder: ReturnType<typeof makeGetEventReminder>;
 }
 
 const EPHEMERAL = { flags: MessageFlags.Ephemeral } as const;
@@ -86,6 +97,7 @@ const FIELD_DESCRIPTION = "description";
 const FIELD_TIMES = "times";
 const FIELD_PERIOD_START = "start";
 const FIELD_PERIOD_END = "end";
+const FIELD_REMIND = "remind";
 
 function errorMessage(error: unknown): string {
   if (error instanceof ScheduleValidationError) {
@@ -196,6 +208,7 @@ function initialBuilderState(now: Date): BuilderState {
     })),
     selectedDates: [],
     timeSlots: [],
+    remindMinute: null,
   };
 }
 
@@ -381,6 +394,57 @@ export async function handleBuilderSetTimesButton(
   );
 }
 
+/** 「当日リマインド」ボタン → 送信時刻を入れるモーダルを開く(空で解除)。 */
+export async function handleBuilderRemindButton(
+  interaction: ButtonInteraction,
+): Promise<void> {
+  const state = stateFromMessage(interaction.message);
+  const current = state?.remindMinute ?? null;
+  const input = new TextInputBuilder()
+    .setCustomId(FIELD_REMIND)
+    .setLabel("送信時刻(JST・空でリマインドなし)")
+    .setStyle(TextInputStyle.Short)
+    .setRequired(false)
+    .setPlaceholder("12:00")
+    .setValue(current === null ? "" : hhmm(current));
+  await interaction.showModal(
+    new ModalBuilder()
+      .setCustomId(BUILDER_REMIND_MODAL)
+      .setTitle("当日リマインドを設定")
+      .addComponents(textRow(input)),
+  );
+}
+
+/** 「当日リマインド」モーダルの送信を反映する。空入力はリマインドなしに戻す。 */
+export async function handleBuilderRemindModal(
+  interaction: ModalSubmitInteraction,
+): Promise<void> {
+  if (!interaction.isFromMessage()) {
+    return;
+  }
+  const state = stateFromMessage(interaction.message);
+  if (!state) {
+    await interaction.deferUpdate();
+    return;
+  }
+  const raw = interaction.fields.getTextInputValue(FIELD_REMIND).trim();
+  if (raw === "") {
+    await interaction.update(
+      renderCreateBuilder({ ...state, remindMinute: null }),
+    );
+    return;
+  }
+  const remindMinute = parseReminderTime(raw);
+  if (remindMinute === null) {
+    await interaction.reply({
+      content: `時刻の形式が不正です(例 12:00): ${raw}`,
+      ...EPHEMERAL,
+    });
+    return;
+  }
+  await interaction.update(renderCreateBuilder({ ...state, remindMinute }));
+}
+
 /** タイトル/説明モーダルの送信を反映する。 */
 export async function handleBuilderTitleModal(
   interaction: ModalSubmitInteraction,
@@ -472,6 +536,14 @@ export async function handleBuilderSubmit(
       candidateStartsAt: input.candidateStartsAt,
     });
     guildSeq = event.guildSeq;
+    if (state.remindMinute !== null) {
+      // 作成時の送信先はこのチャンネル固定(ADR 0012)。変更は /schedule remind から。
+      await deps.setEventReminder({
+        eventId: event.id,
+        channelId,
+        remindMinute: state.remindMinute,
+      });
+    }
     summary = await deps.getScheduleSummary({ eventId: event.id });
   } catch (error) {
     // パネルは残したまま、追加のエフェメラルでエラーを知らせて直せるようにする。
@@ -905,5 +977,139 @@ export async function handleDeleteCancel(
     content: "削除をキャンセルしました。",
     embeds: [],
     components: [],
+  });
+}
+
+// ── リマインド設定(予定単位・ADR 0012) ─────────────────────
+
+interface RemindTarget {
+  readonly eventId: string;
+  readonly guildSeq: number;
+  readonly title: string;
+}
+
+/**
+ * 番号から対象の予定を解決する。サーバー外・番号未解決・権限不足なら応答済みで null。
+ * 設定変更は作成者本人か ManageEvents に絞る(削除と同じ判定を流用する)。
+ */
+async function resolveRemindTarget(
+  interaction: ChatInputCommandInteraction,
+  deps: ScheduleInteractionDeps,
+  requireManage: boolean,
+): Promise<RemindTarget | null> {
+  if (!interaction.inGuild()) {
+    await interaction.reply({
+      content: "サーバー内で使ってください。",
+      ...EPHEMERAL,
+    });
+    return null;
+  }
+  const guildSeq = interaction.options.getInteger(REMIND_OPTION_NUMBER, true);
+  const event = await deps.getScheduleEventByNumber({
+    guildId: interaction.guildId,
+    guildSeq,
+  });
+  if (!event) {
+    await interaction.reply({
+      content: `#${guildSeq} は見つかりませんでした。`,
+      ...EPHEMERAL,
+    });
+    return null;
+  }
+  if (requireManage && !canDeleteEvent(event, deleteActor(interaction))) {
+    await interaction.reply({
+      content:
+        "リマインドを設定できるのは、作成者本人または「イベントの管理」権限を持つ人だけです。",
+      ...EPHEMERAL,
+    });
+    return null;
+  }
+  return {
+    eventId: event.id,
+    guildSeq: event.guildSeq,
+    title: event.title,
+  };
+}
+
+/** /schedule remind set 番号 時刻 [チャンネル]。既定の送信先は予定を作ったチャンネル。 */
+export async function handleRemindSet(
+  interaction: ChatInputCommandInteraction,
+  deps: ScheduleInteractionDeps,
+): Promise<void> {
+  const target = await resolveRemindTarget(interaction, deps, true);
+  if (!target) {
+    return;
+  }
+  const timeInput = interaction.options.getString(REMIND_OPTION_TIME, true);
+  const remindMinute = parseReminderTime(timeInput);
+  if (remindMinute === null) {
+    await interaction.reply({
+      content: `時刻の形式が不正です(例 12:00): ${timeInput}`,
+      ...EPHEMERAL,
+    });
+    return;
+  }
+  // チャンネル未指定なら、既存設定があればそれを引き継ぎ、無ければ実行チャンネル。
+  const specified = interaction.options.getChannel(
+    REMIND_OPTION_CHANNEL,
+    false,
+  );
+  const existing = await deps.getEventReminder({ eventId: target.eventId });
+  const channelId =
+    specified?.id ?? existing?.channelId ?? interaction.channelId;
+  if (channelId === null) {
+    await interaction.reply({
+      content: "送信先チャンネルを指定してください。",
+      ...EPHEMERAL,
+    });
+    return;
+  }
+  await deps.setEventReminder({
+    eventId: target.eventId,
+    channelId,
+    remindMinute,
+  });
+  await interaction.reply({
+    content: `#${target.guildSeq}「${target.title}」の当日リマインドを設定しました: 活動日の ${hhmm(remindMinute)}(JST)に <#${channelId}> へ送ります。`,
+    allowedMentions: { parse: [] },
+    ...EPHEMERAL,
+  });
+}
+
+/** /schedule remind off 番号。設定を削除してその予定のリマインドを止める。 */
+export async function handleRemindOff(
+  interaction: ChatInputCommandInteraction,
+  deps: ScheduleInteractionDeps,
+): Promise<void> {
+  const target = await resolveRemindTarget(interaction, deps, true);
+  if (!target) {
+    return;
+  }
+  const disabled = await deps.disableEventReminder({ eventId: target.eventId });
+  await interaction.reply({
+    content: disabled
+      ? `#${target.guildSeq}「${target.title}」の当日リマインドを停止しました。`
+      : `#${target.guildSeq}「${target.title}」に当日リマインドは設定されていません。`,
+    allowedMentions: { parse: [] },
+    ...EPHEMERAL,
+  });
+}
+
+/** /schedule remind status 番号。現在の設定を表示する(閲覧は誰でも可)。 */
+export async function handleRemindStatus(
+  interaction: ChatInputCommandInteraction,
+  deps: ScheduleInteractionDeps,
+): Promise<void> {
+  const target = await resolveRemindTarget(interaction, deps, false);
+  if (!target) {
+    return;
+  }
+  const reminder = await deps.getEventReminder({ eventId: target.eventId });
+  await interaction.reply({
+    content: reminder
+      ? `#${target.guildSeq}「${target.title}」: 活動日の ${hhmm(reminder.remindMinute)}(JST)に <#${reminder.channelId}> へ送ります。`
+      : `#${target.guildSeq}「${target.title}」: 当日リマインドは設定されていません。/schedule remind set で有効化できます。`,
+    allowedMentions: { parse: [] },
+    ...EPHEMERAL,
   });
 }

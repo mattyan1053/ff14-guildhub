@@ -19,6 +19,8 @@ import {
   BUILDER_DAY_PREFIX,
   BUILDER_PERIOD_BUTTON,
   BUILDER_PERIOD_MODAL,
+  BUILDER_REMIND_BUTTON,
+  BUILDER_REMIND_MODAL,
   BUILDER_SET_TIMES_BUTTON,
   BUILDER_SET_TIMES_MODAL,
   BUILDER_SUBMIT_BUTTON,
@@ -37,6 +39,8 @@ import {
   handleBuilderPaging,
   handleBuilderPeriodButton,
   handleBuilderPeriodModal,
+  handleBuilderRemindButton,
+  handleBuilderRemindModal,
   handleBuilderSetTimesButton,
   handleBuilderSetTimesModal,
   handleBuilderSubmit,
@@ -49,6 +53,9 @@ import {
   handleList,
   handleListSelect,
   handlePanelOpen,
+  handleRemindOff,
+  handleRemindSet,
+  handleRemindStatus,
   handleShow,
   type ScheduleInteractionDeps,
 } from "./schedule/handlers.js";
@@ -61,6 +68,16 @@ async function routeCommand(
     return;
   }
   const sub = interaction.options.getSubcommand();
+  if (interaction.options.getSubcommandGroup(false) === "remind") {
+    if (sub === "set") {
+      await handleRemindSet(interaction, deps);
+    } else if (sub === "off") {
+      await handleRemindOff(interaction, deps);
+    } else if (sub === "status") {
+      await handleRemindStatus(interaction, deps);
+    }
+    return;
+  }
   if (sub === "create") {
     await handleCreateCommand(interaction);
   } else if (sub === "list") {
@@ -115,6 +132,9 @@ async function routeButton(
     case BUILDER_SET_TIMES_BUTTON:
       await handleBuilderSetTimesButton(interaction);
       return;
+    case BUILDER_REMIND_BUTTON:
+      await handleBuilderRemindButton(interaction);
+      return;
     case BUILDER_SUBMIT_BUTTON:
       await handleBuilderSubmit(interaction, deps);
       return;
@@ -156,6 +176,9 @@ async function routeModal(interaction: ModalSubmitInteraction): Promise<void> {
       return;
     case BUILDER_PERIOD_MODAL:
       await handleBuilderPeriodModal(interaction);
+      return;
+    case BUILDER_REMIND_MODAL:
+      await handleBuilderRemindModal(interaction);
       return;
     default:
       break;
