@@ -5,10 +5,12 @@
 type AnyKysely = import("kysely").Kysely<any>;
 
 export const up = async (db: AnyKysely): Promise<void> => {
-  // guild ごとの当日活動リマインド設定(ADR 0011)。行が存在すれば有効(opt-in)。
+  // 予定ごとの当日活動リマインド設定(ADR 0012)。行が存在すれば有効(opt-in)。
   await db.schema
-    .createTable("reminder_settings")
-    .addColumn("guild_id", "text", (col) => col.primaryKey())
+    .createTable("event_reminders")
+    .addColumn("event_id", "text", (col) =>
+      col.primaryKey().references("events.id").onDelete("cascade"),
+    )
     .addColumn("channel_id", "text", (col) => col.notNull())
     .addColumn("remind_minute", "integer", (col) => col.notNull())
     .addColumn("created_at", "text", (col) => col.notNull())
@@ -32,5 +34,5 @@ export const up = async (db: AnyKysely): Promise<void> => {
 
 export const down = async (db: AnyKysely): Promise<void> => {
   await db.schema.dropTable("reminder_deliveries").execute();
-  await db.schema.dropTable("reminder_settings").execute();
+  await db.schema.dropTable("event_reminders").execute();
 };

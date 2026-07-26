@@ -1,76 +1,95 @@
 import type {
+  DueEventReminder,
+  EventReminder,
+  EventReminderRepository,
   ReminderDeliveryRepository,
-  ReminderSettings,
-  ReminderSettingsRepository,
 } from "../../../application/schedule/ports/reminder.js";
 import type { AppDatabase } from "../../database/connection.js";
 
 export interface KyselyReminderRepository {
-  readonly settings: ReminderSettingsRepository;
+  readonly reminders: EventReminderRepository;
   readonly deliveries: ReminderDeliveryRepository;
 }
 
 /**
- * Kysely によるリマインド設定・判定済み記録の実装。
+ * Kysely による予定ごとのリマインド設定・判定済み記録の実装。
  * テーブル構造はこのモジュールの外へ漏らさない(ドメイン型で受け渡す)。
  */
 export function createKyselyReminderRepository(
   db: AppDatabase,
 ): KyselyReminderRepository {
   return {
-    settings: {
-      async upsert(settings: ReminderSettings): Promise<void> {
+    reminders: {
+      async upsert(reminder: EventReminder): Promise<void> {
         const iso = new Date().toISOString();
         await db
-          .insertInto("reminder_settings")
+          .insertInto("event_reminders")
           .values({
-            guild_id: settings.guildId,
-            channel_id: settings.channelId,
-            remind_minute: settings.remindMinute,
+            event_id: reminder.eventId,
+            channel_id: reminder.channelId,
+            remind_minute: reminder.remindMinute,
             created_at: iso,
             updated_at: iso,
           })
           .onConflict((oc) =>
-            oc.column("guild_id").doUpdateSet({
-              channel_id: settings.channelId,
-              remind_minute: settings.remindMinute,
+            oc.column("event_id").doUpdateSet({
+              channel_id: reminder.channelId,
+              remind_minute: reminder.remindMinute,
               updated_at: iso,
             }),
           )
           .execute();
       },
 
-      async find(guildId: string): Promise<ReminderSettings | null> {
+      async find(eventId: string): Promise<EventReminder | null> {
         const row = await db
-          .selectFrom("reminder_settings")
+          .selectFrom("event_reminders")
           .selectAll()
-          .where("guild_id", "=", guildId)
+          .where("event_id", "=", eventId)
           .executeTakeFirst();
         return row
           ? {
-              guildId: row.guild_id,
+              eventId: row.event_id,
               channelId: row.channel_id,
               remindMinute: row.remind_minute,
             }
           : null;
       },
 
-      async delete(guildId: string): Promise<void> {
+      async delete(eventId: string): Promise<void> {
         await db
-          .deleteFrom("reminder_settings")
-          .where("guild_id", "=", guildId)
+          .deleteFrom("event_reminders")
+          .where("event_id", "=", eventId)
           .execute();
       },
 
-      async listAll(): Promise<ReminderSettings[]> {
+      async listDue(
+        startsAt: Date,
+        minute: number,
+      ): Promise<DueEventReminder[]> {
+        // guild では絞らない。日付は JST 固定(ADR 0006)で全 guild 共通のため。
         const rows = await db
-          .selectFrom("reminder_settings")
-          .selectAll()
+          .selectFrom("event_reminders")
+          .innerJoin("events", "events.id", "event_reminders.event_id")
+          .select([
+            "event_reminders.event_id",
+            "event_reminders.channel_id as reminder_channel_id",
+          ])
+          .where("event_reminders.remind_minute", "<=", minute)
+          .where("events.status", "=", "open")
+          .where(({ exists, selectFrom }) =>
+            exists(
+              selectFrom("candidates")
+                .select("candidates.id")
+                .whereRef("candidates.event_id", "=", "events.id")
+                .where("candidates.starts_at", "=", startsAt.toISOString()),
+            ),
+          )
+          .orderBy("events.guild_seq", "asc")
           .execute();
         return rows.map((row) => ({
-          guildId: row.guild_id,
-          channelId: row.channel_id,
-          remindMinute: row.remind_minute,
+          eventId: row.event_id,
+          channelId: row.reminder_channel_id,
         }));
       },
     },

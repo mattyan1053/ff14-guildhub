@@ -42,11 +42,6 @@ export interface ScheduleRepository {
     channelId: string,
     messageId: string,
   ): Promise<void>;
-  /** guild 内の open なイベントのうち、starts_at が一致する候補日を持つものを返す(リマインド用) */
-  listOpenEventsByCandidateDate(
-    guildId: string,
-    startsAt: Date,
-  ): Promise<ScheduleEvent[]>;
   /** (candidateId, userId) で upsert */
   upsertResponse(input: UpsertResponseInput): Promise<void>;
   /** 複数の (candidateId, userId) を1トランザクションで一括 upsert(全部成功か全部失敗) */

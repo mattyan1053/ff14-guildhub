@@ -1,9 +1,9 @@
 ---
-status: accepted
+status: superseded
 date: 2026-07-26
 tags: [architecture, db, feature, stack]
 supersedes: []
-superseded-by: []
+superseded-by: [0012]
 ---
 
 # 0011: 当日活動リマインド

@@ -1,20 +1,34 @@
 import type { DailyReminder } from "../../../domain/schedule/reminder.js";
 
-/** guild ごとの当日活動リマインド設定。行が存在すれば有効(opt-in、ADR 0011)。 */
-export interface ReminderSettings {
-  readonly guildId: string;
+/**
+ * 予定ごとの当日活動リマインド設定(ADR 0012)。
+ * 行が存在すること自体が「有効」を表し、無効化は削除で行う。
+ */
+export interface EventReminder {
+  readonly eventId: string;
   /** リマインドの送信先チャンネル */
   readonly channelId: string;
   /** 送信時刻。JST の0時からの分 (0..1439) */
   readonly remindMinute: number;
 }
 
-export interface ReminderSettingsRepository {
-  upsert(settings: ReminderSettings): Promise<void>;
-  find(guildId: string): Promise<ReminderSettings | null>;
-  /** 存在しない guild は no-op */
-  delete(guildId: string): Promise<void>;
-  listAll(): Promise<ReminderSettings[]>;
+/** 発火対象の読み取りモデル。 */
+export interface DueEventReminder {
+  readonly eventId: string;
+  readonly channelId: string;
+}
+
+export interface EventReminderRepository {
+  upsert(reminder: EventReminder): Promise<void>;
+  find(eventId: string): Promise<EventReminder | null>;
+  /** 存在しない eventId は no-op */
+  delete(eventId: string): Promise<void>;
+  /**
+   * 発火対象を guild 横断で返す。日付は JST 固定(ADR 0006)なので guild を巡回しない。
+   * 条件: リマインド有効 × remindMinute <= minute × status が open ×
+   * startsAt と一致する候補日を持つ。
+   */
+  listDue(startsAt: Date, minute: number): Promise<DueEventReminder[]>;
 }
 
 /**

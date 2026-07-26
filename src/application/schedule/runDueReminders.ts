@@ -1,18 +1,17 @@
 import { startsAtFromDateValue } from "../../domain/schedule/datePresets.js";
 import { jstClock, planDailyReminder } from "../../domain/schedule/reminder.js";
-import type { ScheduleEvent } from "../../domain/schedule/scheduleEvent.js";
 import { summarizeResponses } from "../../domain/schedule/summary.js";
 import type {
+  DueEventReminder,
+  EventReminderRepository,
   ReminderDeliveryRepository,
   ReminderNotifier,
-  ReminderSettings,
-  ReminderSettingsRepository,
 } from "./ports/reminder.js";
 import type { ScheduleRepository } from "./ports/scheduleRepository.js";
 
 export interface RunDueRemindersDeps {
   scheduleRepository: ScheduleRepository;
-  settingsRepository: ReminderSettingsRepository;
+  reminderRepository: EventReminderRepository;
   deliveryRepository: ReminderDeliveryRepository;
   notifier: ReminderNotifier;
   now: () => Date;
@@ -20,14 +19,17 @@ export interface RunDueRemindersDeps {
   onSendError?: (error: unknown) => void;
 }
 
-/** 1イベントを判定し、活動ありなら送信する。判定済み記録は送信より先に書く(at-most-once)。 */
+/** 1件を判定し、活動ありなら送信する。判定済み記録は送信より先に書く(at-most-once)。 */
 async function judgeAndNotify(
   deps: RunDueRemindersDeps,
-  settings: ReminderSettings,
-  event: ScheduleEvent,
+  due: DueEventReminder,
   dateValue: string,
 ): Promise<void> {
-  if (await deps.deliveryRepository.wasJudged(event.id, dateValue)) {
+  if (await deps.deliveryRepository.wasJudged(due.eventId, dateValue)) {
+    return;
+  }
+  const event = await deps.scheduleRepository.findById(due.eventId);
+  if (!event) {
     return;
   }
   const responses = await deps.scheduleRepository.listResponses(event.id);
@@ -40,16 +42,16 @@ async function judgeAndNotify(
     return;
   }
   try {
-    await deps.notifier.sendDailyReminder(settings.channelId, plan, dateValue);
+    await deps.notifier.sendDailyReminder(due.channelId, plan, dateValue);
   } catch (error) {
     deps.onSendError?.(error);
   }
 }
 
 /**
- * 当日活動リマインドの発火本体(ADR 0011)。毎分tickから呼ばれる。
- * 「設定時刻を過ぎていて、JSTで同じ日のうちに、まだ判定していないイベント」を
- * 判定・送信する。判定は発火時の1回きり。
+ * 当日活動リマインドの発火本体(ADR 0011 の判定を ADR 0012 の予定単位設定で引く)。
+ * 毎分tickから呼ばれ、「設定時刻を過ぎていて、JSTで同じ日のうちに、まだ判定して
+ * いない予定」を判定・送信する。判定は発火時の1回きり。
  */
 export function makeRunDueReminders(
   deps: RunDueRemindersDeps,
@@ -60,19 +62,9 @@ export function makeRunDueReminders(
     if (!startsAt) {
       return;
     }
-
-    for (const settings of await deps.settingsRepository.listAll()) {
-      if (settings.remindMinute > clock.minute) {
-        continue;
-      }
-      const events =
-        await deps.scheduleRepository.listOpenEventsByCandidateDate(
-          settings.guildId,
-          startsAt,
-        );
-      for (const event of events) {
-        await judgeAndNotify(deps, settings, event, clock.dateValue);
-      }
+    const dues = await deps.reminderRepository.listDue(startsAt, clock.minute);
+    for (const due of dues) {
+      await judgeAndNotify(deps, due, clock.dateValue);
     }
   };
 }

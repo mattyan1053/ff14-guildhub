@@ -7,9 +7,9 @@ import type {
 } from "../../domain/schedule/scheduleEvent.js";
 import { makeRunDueReminders } from "./runDueReminders.js";
 import {
+  createFakeEventReminderRepository,
   createFakeReminderDeliveryRepository,
   createFakeReminderNotifier,
-  createFakeReminderSettingsRepository,
 } from "./testing/fakeReminderPorts.js";
 import { createFakeScheduleRepository } from "./testing/fakeScheduleRepository.js";
 
@@ -68,7 +68,7 @@ function responseOptions(eventId: string): ResponseOption[] {
 
 function buildEvent(opts: {
   id: string;
-  guildId: string;
+  guildId?: string;
   guildSeq?: number;
   title?: string;
   /** 候補日(既定は今日) */
@@ -85,8 +85,9 @@ function buildEvent(opts: {
   ];
   return {
     id: opts.id,
-    guildId: opts.guildId,
-    channelId: "channel-src",
+    guildId: opts.guildId ?? "guild-1",
+    // 予定が作られたチャンネル。リマインドの送信先とは別物である点に注意。
+    channelId: "channel-event",
     messageId: "message-1",
     creatorId: "creator-1",
     guildSeq: opts.guildSeq ?? 1,
@@ -102,34 +103,45 @@ function buildEvent(opts: {
 
 function setup() {
   const scheduleRepository = createFakeScheduleRepository();
-  const settingsRepository = createFakeReminderSettingsRepository();
+  const reminderRepository = createFakeEventReminderRepository();
   const deliveryRepository = createFakeReminderDeliveryRepository();
   const notifier = createFakeReminderNotifier();
+  const sendErrors: unknown[] = [];
   const runDueReminders = makeRunDueReminders({
     scheduleRepository,
-    settingsRepository,
+    reminderRepository,
     deliveryRepository,
     notifier,
     now: () => FIXED_NOW,
+    onSendError: (error: unknown) => {
+      sendErrors.push(error);
+    },
   });
   return {
     scheduleRepository,
-    settingsRepository,
+    reminderRepository,
     deliveryRepository,
     notifier,
+    sendErrors,
     runDueReminders,
   };
 }
 
 describe("makeRunDueReminders", () => {
-  it("発火時刻前の guild には送らず、判定記録も書かない", async () => {
+  it("発火対象の問い合わせは JST 当日の候補日と現在の分で行う", async () => {
     const ctx = setup();
-    ctx.scheduleRepository.seed(buildEvent({ id: "e1", guildId: "guild-1" }));
-    ctx.settingsRepository.seed({
-      guildId: "guild-1",
-      channelId: "channel-r",
-      remindMinute: NOW_MINUTE + 1,
-    });
+
+    await ctx.runDueReminders();
+
+    expect(ctx.reminderRepository.listDueCalls).toEqual([
+      { startsAt: startsAtOf(TODAY), minute: NOW_MINUTE },
+    ]);
+  });
+
+  it("発火対象が無ければ送信も判定記録もしない", async () => {
+    const ctx = setup();
+    ctx.scheduleRepository.seed(buildEvent({ id: "e1" }));
+    ctx.reminderRepository.setDue([]);
 
     await ctx.runDueReminders();
 
@@ -137,44 +149,26 @@ describe("makeRunDueReminders", () => {
     expect(ctx.deliveryRepository.judgedKeys()).toHaveLength(0);
   });
 
-  it("発火時刻ちょうど(remindMinute === 現在分)なら送る", async () => {
+  it("発火対象は予定ごとのリマインド先チャンネルへ送る(予定の作成チャンネルではない)", async () => {
     const ctx = setup();
-    ctx.scheduleRepository.seed(buildEvent({ id: "e1", guildId: "guild-1" }));
-    ctx.settingsRepository.seed({
-      guildId: "guild-1",
-      channelId: "channel-r",
-      remindMinute: NOW_MINUTE,
-    });
+    ctx.scheduleRepository.seed(buildEvent({ id: "e1" }));
+    ctx.reminderRepository.setDue([
+      { eventId: "e1", channelId: "channel-remind" },
+    ]);
 
     await ctx.runDueReminders();
 
     expect(ctx.notifier.sent).toHaveLength(1);
-    expect(ctx.notifier.sent[0]?.channelId).toBe("channel-r");
+    expect(ctx.notifier.sent[0]?.channelId).toBe("channel-remind");
     expect(ctx.notifier.sent[0]?.dateValue).toBe(TODAY);
   });
 
-  it("発火時刻を大きく過ぎていても同じJST日なら追い送りする", async () => {
+  it("判定済みの予定は再送しない(2回呼んでも1通)", async () => {
     const ctx = setup();
-    ctx.scheduleRepository.seed(buildEvent({ id: "e1", guildId: "guild-1" }));
-    ctx.settingsRepository.seed({
-      guildId: "guild-1",
-      channelId: "channel-r",
-      remindMinute: 60, // JST 1:00 設定。現在は 21:30
-    });
-
-    await ctx.runDueReminders();
-
-    expect(ctx.notifier.sent).toHaveLength(1);
-  });
-
-  it("判定済みのイベントは再送しない(2回呼んでも1通)", async () => {
-    const ctx = setup();
-    ctx.scheduleRepository.seed(buildEvent({ id: "e1", guildId: "guild-1" }));
-    ctx.settingsRepository.seed({
-      guildId: "guild-1",
-      channelId: "channel-r",
-      remindMinute: NOW_MINUTE,
-    });
+    ctx.scheduleRepository.seed(buildEvent({ id: "e1" }));
+    ctx.reminderRepository.setDue([
+      { eventId: "e1", channelId: "channel-remind" },
+    ]);
 
     await ctx.runDueReminders();
     await ctx.runDueReminders();
@@ -182,9 +176,9 @@ describe("makeRunDueReminders", () => {
     expect(ctx.notifier.sent).toHaveLength(1);
   });
 
-  it("pending のイベントは送らないが判定済みとして記録し、後で active に変わっても送らない", async () => {
+  it("pending の予定は送らないが判定済みとして記録し、後で active に変わっても送らない", async () => {
     const ctx = setup();
-    ctx.scheduleRepository.seed(buildEvent({ id: "e1", guildId: "guild-1" }));
+    ctx.scheduleRepository.seed(buildEvent({ id: "e1" }));
     // 未定回答 → pending なので沈黙
     await ctx.scheduleRepository.upsertResponse({
       id: "r1",
@@ -194,11 +188,9 @@ describe("makeRunDueReminders", () => {
       userId: "u1",
       now: FIXED_NOW,
     });
-    ctx.settingsRepository.seed({
-      guildId: "guild-1",
-      channelId: "channel-r",
-      remindMinute: NOW_MINUTE,
-    });
+    ctx.reminderRepository.setDue([
+      { eventId: "e1", channelId: "channel-remind" },
+    ]);
 
     await ctx.runDueReminders();
 
@@ -219,10 +211,10 @@ describe("makeRunDueReminders", () => {
     expect(ctx.notifier.sent).toHaveLength(0);
   });
 
-  it("active なイベントの内容(開始時刻・メンション対象)を正しく組み立てて送る", async () => {
+  it("active な予定の内容(開始時刻・メンション対象)を正しく組み立てて送る", async () => {
     const ctx = setup();
     ctx.scheduleRepository.seed(
-      buildEvent({ id: "e1", guildId: "guild-1", guildSeq: 3, title: "零式" }),
+      buildEvent({ id: "e1", guildSeq: 3, title: "零式" }),
     );
     await ctx.scheduleRepository.upsertResponses([
       {
@@ -242,17 +234,15 @@ describe("makeRunDueReminders", () => {
         now: FIXED_NOW,
       },
     ]);
-    ctx.settingsRepository.seed({
-      guildId: "guild-1",
-      channelId: "channel-r",
-      remindMinute: NOW_MINUTE,
-    });
+    ctx.reminderRepository.setDue([
+      { eventId: "e1", channelId: "channel-remind" },
+    ]);
 
     await ctx.runDueReminders();
 
     expect(ctx.notifier.sent).toHaveLength(1);
     expect(ctx.notifier.sent[0]).toEqual({
-      channelId: "channel-r",
+      channelId: "channel-remind",
       dateValue: TODAY,
       reminder: {
         eventId: "e1",
@@ -265,14 +255,12 @@ describe("makeRunDueReminders", () => {
     });
   });
 
-  it("回答ゼロのイベントは active-anytime としてメンションなしで送る", async () => {
+  it("回答ゼロの予定は active-anytime としてメンションなしで送る", async () => {
     const ctx = setup();
-    ctx.scheduleRepository.seed(buildEvent({ id: "e1", guildId: "guild-1" }));
-    ctx.settingsRepository.seed({
-      guildId: "guild-1",
-      channelId: "channel-r",
-      remindMinute: NOW_MINUTE,
-    });
+    ctx.scheduleRepository.seed(buildEvent({ id: "e1" }));
+    ctx.reminderRepository.setDue([
+      { eventId: "e1", channelId: "channel-remind" },
+    ]);
 
     await ctx.runDueReminders();
 
@@ -281,23 +269,20 @@ describe("makeRunDueReminders", () => {
     expect(ctx.notifier.sent[0]?.reminder.mentionUserIds).toEqual([]);
   });
 
-  it("今日の候補を持たないイベントには送らない", async () => {
+  it("発火対象を引いた後に消えていた予定は skip し、判定記録も書かない", async () => {
     const ctx = setup();
-    ctx.scheduleRepository.seed(
-      buildEvent({ id: "e1", guildId: "guild-1", dateValue: "2026-07-28" }),
-    );
-    ctx.settingsRepository.seed({
-      guildId: "guild-1",
-      channelId: "channel-r",
-      remindMinute: NOW_MINUTE,
-    });
+    // scheduleRepository には存在しない eventId が発火対象として返る
+    ctx.reminderRepository.setDue([
+      { eventId: "gone", channelId: "channel-remind" },
+    ]);
 
-    await ctx.runDueReminders();
+    await expect(ctx.runDueReminders()).resolves.toBeUndefined();
 
     expect(ctx.notifier.sent).toHaveLength(0);
+    expect(ctx.deliveryRepository.judgedKeys()).toHaveLength(0);
   });
 
-  it("複数 guild・複数イベントでイベントごとに1通ずつ、各 guild のチャンネルへ送る", async () => {
+  it("複数の予定はそれぞれの送信先へ1通ずつ送る", async () => {
     const ctx = setup();
     ctx.scheduleRepository.seed(
       buildEvent({ id: "e1", guildId: "guild-1", guildSeq: 1 }),
@@ -308,72 +293,61 @@ describe("makeRunDueReminders", () => {
     ctx.scheduleRepository.seed(
       buildEvent({ id: "e3", guildId: "guild-2", guildSeq: 1 }),
     );
-    ctx.settingsRepository.seed({
-      guildId: "guild-1",
-      channelId: "channel-g1",
-      remindMinute: NOW_MINUTE,
-    });
-    ctx.settingsRepository.seed({
-      guildId: "guild-2",
-      channelId: "channel-g2",
-      remindMinute: NOW_MINUTE,
-    });
+    ctx.reminderRepository.setDue([
+      { eventId: "e1", channelId: "channel-a" },
+      { eventId: "e2", channelId: "channel-b" },
+      { eventId: "e3", channelId: "channel-c" },
+    ]);
 
     await ctx.runDueReminders();
 
     expect(ctx.notifier.sent).toHaveLength(3);
-    const byChannel = ctx.notifier.sent.map((s) => [
+    const pairs = ctx.notifier.sent.map((s) => [
       s.channelId,
       s.reminder.eventId,
     ]);
-    expect(byChannel).toContainEqual(["channel-g1", "e1"]);
-    expect(byChannel).toContainEqual(["channel-g1", "e2"]);
-    expect(byChannel).toContainEqual(["channel-g2", "e3"]);
+    expect(pairs).toContainEqual(["channel-a", "e1"]);
+    expect(pairs).toContainEqual(["channel-b", "e2"]);
+    expect(pairs).toContainEqual(["channel-c", "e3"]);
   });
 
-  it("発火前の guild と発火後の guild が混在したら、発火後だけに送る", async () => {
+  it("notifier が reject しても throw せず、他の予定への送信は続行する", async () => {
     const ctx = setup();
-    ctx.scheduleRepository.seed(buildEvent({ id: "e1", guildId: "guild-1" }));
-    ctx.scheduleRepository.seed(buildEvent({ id: "e2", guildId: "guild-2" }));
-    ctx.settingsRepository.seed({
-      guildId: "guild-1",
-      channelId: "channel-g1",
-      remindMinute: NOW_MINUTE + 10, // まだ
-    });
-    ctx.settingsRepository.seed({
-      guildId: "guild-2",
-      channelId: "channel-g2",
-      remindMinute: NOW_MINUTE, // 発火
-    });
-
-    await ctx.runDueReminders();
-
-    expect(ctx.notifier.sent.map((s) => s.channelId)).toEqual(["channel-g2"]);
-  });
-
-  it("notifier が reject しても throw せず、他 guild への送信は続行する", async () => {
-    const ctx = setup();
-    ctx.scheduleRepository.seed(buildEvent({ id: "e1", guildId: "guild-1" }));
-    ctx.scheduleRepository.seed(buildEvent({ id: "e2", guildId: "guild-2" }));
-    ctx.settingsRepository.seed({
-      guildId: "guild-1",
-      channelId: "channel-g1",
-      remindMinute: NOW_MINUTE,
-    });
-    ctx.settingsRepository.seed({
-      guildId: "guild-2",
-      channelId: "channel-g2",
-      remindMinute: NOW_MINUTE,
-    });
-    ctx.notifier.failChannel("channel-g1");
+    ctx.scheduleRepository.seed(buildEvent({ id: "e1", guildSeq: 1 }));
+    ctx.scheduleRepository.seed(buildEvent({ id: "e2", guildSeq: 2 }));
+    ctx.reminderRepository.setDue([
+      { eventId: "e1", channelId: "channel-a" },
+      { eventId: "e2", channelId: "channel-b" },
+    ]);
+    ctx.notifier.failChannel("channel-a");
 
     await expect(ctx.runDueReminders()).resolves.toBeUndefined();
 
-    expect(ctx.notifier.sent.map((s) => s.channelId)).toEqual(["channel-g2"]);
+    expect(ctx.notifier.sent.map((s) => s.channelId)).toEqual(["channel-b"]);
+    expect(ctx.sendErrors).toHaveLength(1);
     // 送信の前に判定済みを記録するので、失敗した分も at-most-once(再送しない)
     expect(await ctx.deliveryRepository.wasJudged("e1", TODAY)).toBe(true);
 
     await ctx.runDueReminders();
     expect(ctx.notifier.sent).toHaveLength(1);
+  });
+
+  it("onSendError が未指定でも送信失敗を握りつぶす", async () => {
+    const scheduleRepository = createFakeScheduleRepository();
+    const reminderRepository = createFakeEventReminderRepository();
+    const deliveryRepository = createFakeReminderDeliveryRepository();
+    const notifier = createFakeReminderNotifier();
+    const runDueReminders = makeRunDueReminders({
+      scheduleRepository,
+      reminderRepository,
+      deliveryRepository,
+      notifier,
+      now: () => FIXED_NOW,
+    });
+    scheduleRepository.seed(buildEvent({ id: "e1" }));
+    reminderRepository.setDue([{ eventId: "e1", channelId: "channel-a" }]);
+    notifier.failChannel("channel-a");
+
+    await expect(runDueReminders()).resolves.toBeUndefined();
   });
 });

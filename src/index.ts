@@ -5,13 +5,13 @@ import { makeAddResponses } from "./application/schedule/addResponses.js";
 import { makeAttachScheduleMessage } from "./application/schedule/attachScheduleMessage.js";
 import { makeCreateScheduleEvent } from "./application/schedule/createScheduleEvent.js";
 import { makeDeleteScheduleEvent } from "./application/schedule/deleteScheduleEvent.js";
-import { makeDisableReminder } from "./application/schedule/disableReminder.js";
-import { makeGetReminderSettings } from "./application/schedule/getReminderSettings.js";
+import { makeDisableEventReminder } from "./application/schedule/disableEventReminder.js";
+import { makeGetEventReminder } from "./application/schedule/getEventReminder.js";
 import { makeGetScheduleEventByNumber } from "./application/schedule/getScheduleEventByNumber.js";
 import { makeGetScheduleSummary } from "./application/schedule/getScheduleSummary.js";
 import { makeListScheduleEvents } from "./application/schedule/listScheduleEvents.js";
 import { makeRunDueReminders } from "./application/schedule/runDueReminders.js";
-import { makeSetReminder } from "./application/schedule/setReminder.js";
+import { makeSetEventReminder } from "./application/schedule/setEventReminder.js";
 import { makeShowScheduleEvent } from "./application/schedule/showScheduleEvent.js";
 import { EnvValidationError, loadEnv } from "./config/env.js";
 import { createDiscordClient } from "./discord/client.js";
@@ -52,14 +52,14 @@ async function main(): Promise<void> {
     showScheduleEvent: makeShowScheduleEvent({ repository }),
     getScheduleEventByNumber: makeGetScheduleEventByNumber({ repository }),
     deleteScheduleEvent: makeDeleteScheduleEvent({ repository }),
-    setReminder: makeSetReminder({
-      settingsRepository: reminderRepository.settings,
+    setEventReminder: makeSetEventReminder({
+      reminderRepository: reminderRepository.reminders,
     }),
-    disableReminder: makeDisableReminder({
-      settingsRepository: reminderRepository.settings,
+    disableEventReminder: makeDisableEventReminder({
+      reminderRepository: reminderRepository.reminders,
     }),
-    getReminderSettings: makeGetReminderSettings({
-      settingsRepository: reminderRepository.settings,
+    getEventReminder: makeGetEventReminder({
+      reminderRepository: reminderRepository.reminders,
     }),
   });
 
@@ -67,7 +67,7 @@ async function main(): Promise<void> {
 
   const runDueReminders = makeRunDueReminders({
     scheduleRepository: repository,
-    settingsRepository: reminderRepository.settings,
+    reminderRepository: reminderRepository.reminders,
     deliveryRepository: reminderRepository.deliveries,
     notifier: createReminderNotifier(client),
     now,

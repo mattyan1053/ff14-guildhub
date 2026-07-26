@@ -53,8 +53,8 @@ interface GuildCountersTable {
   last_seq: number;
 }
 
-interface ReminderSettingsTable {
-  guild_id: string;
+interface EventRemindersTable {
+  event_id: string;
   channel_id: string;
   remind_minute: number;
   created_at: string;
@@ -73,7 +73,7 @@ export interface DatabaseSchema {
   response_options: ResponseOptionsTable;
   responses: ResponsesTable;
   guild_counters: GuildCountersTable;
-  reminder_settings: ReminderSettingsTable;
+  event_reminders: EventRemindersTable;
   reminder_deliveries: ReminderDeliveriesTable;
 }
 

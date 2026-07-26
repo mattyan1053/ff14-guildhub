@@ -118,11 +118,53 @@ describe("renderCreateBuilder / parseBuilderState の往復", () => {
       // 表示中の週(offset=1)に無い日も混ぜて昇順で保持する
       selectedDates: ["2026-07-22", "2026-07-30", "2026-08-10"],
       timeSlots: ["21:00", "22:00"],
+      remindMinute: null,
     };
 
     const restored = parseBuilderState(renderCreateBuilder(state));
 
     expect(restored).toEqual(state);
+  });
+
+  it("当日リマインドの送信時刻を往復し、候補時刻と混ざらない", () => {
+    // 候補時刻とリマインド時刻はどちらも "HH:MM" 形式なので、
+    // フィールドを跨いで取り違えないことを確かめる(ADR 0012)。
+    const state: BuilderState = {
+      title: "固定練習",
+      description: null,
+      weekOffset: 0,
+      canPrev: false,
+      canNext: true,
+      weekDays: [{ value: "2026-07-27", label: "7/27(月)" }],
+      selectedDates: ["2026-07-27"],
+      timeSlots: ["21:00", "22:00"],
+      remindMinute: 12 * 60,
+    };
+
+    const restored = parseBuilderState(renderCreateBuilder(state));
+
+    expect(restored).toEqual(state);
+    expect(restored.timeSlots).toEqual(["21:00", "22:00"]);
+    expect(restored.remindMinute).toBe(720);
+  });
+
+  it("リマインド未設定は remindMinute が null のまま往復する", () => {
+    const state: BuilderState = {
+      title: null,
+      description: null,
+      weekOffset: 0,
+      canPrev: false,
+      canNext: true,
+      weekDays: [{ value: "2026-07-27", label: "7/27(月)" }],
+      selectedDates: [],
+      timeSlots: ["09:05"],
+      remindMinute: null,
+    };
+
+    const restored = parseBuilderState(renderCreateBuilder(state));
+
+    expect(restored.remindMinute).toBeNull();
+    expect(restored.timeSlots).toEqual(["09:05"]);
   });
 
   it("単一月に収まる選択済み候補日をカレンダー経由で往復する", () => {
@@ -143,6 +185,7 @@ describe("renderCreateBuilder / parseBuilderState の往復", () => {
       ],
       selectedDates: ["2026-07-22", "2026-07-25"],
       timeSlots: ["21:00", "22:00"],
+      remindMinute: null,
     };
 
     const restored = parseBuilderState(renderCreateBuilder(state));
@@ -169,6 +212,7 @@ describe("renderCreateBuilder / parseBuilderState の往復", () => {
       // 7月末と8月にまたがる。8/10 は表示中の週には無い。
       selectedDates: ["2026-07-30", "2026-08-02", "2026-08-10"],
       timeSlots: ["21:00"],
+      remindMinute: null,
     };
 
     const payload = renderCreateBuilder(state);
@@ -193,6 +237,7 @@ describe("renderCreateBuilder / parseBuilderState の往復", () => {
       ],
       selectedDates: ["2026-07-22", "2026-07-25"],
       timeSlots: [],
+      remindMinute: null,
     };
 
     const restored = parseBuilderState(renderCreateBuilder(state));
@@ -213,6 +258,7 @@ describe("renderCreateBuilder / parseBuilderState の往復", () => {
       ],
       selectedDates: [],
       timeSlots: ["21:00"],
+      remindMinute: null,
     };
 
     const restored = parseBuilderState(renderCreateBuilder(state));
@@ -230,6 +276,7 @@ describe("renderCreateBuilder / parseBuilderState の往復", () => {
       weekDays: [{ value: "2026-07-22", label: "7/22(水)" }],
       selectedDates: [],
       timeSlots: [],
+      remindMinute: null,
     };
 
     const payload = renderCreateBuilder(state);
@@ -257,6 +304,7 @@ describe("renderCreateBuilder / parseBuilderState の往復", () => {
       weekDays: [{ value: "2026-09-16", label: "9/16(水)" }],
       selectedDates: [],
       timeSlots: [],
+      remindMinute: null,
     };
 
     const payload = renderCreateBuilder(state);
@@ -298,6 +346,7 @@ describe("大きな範囲(3ヶ月)のカレンダー", () => {
       weekDays: [{ value: "2026-07-22", label: "7/22(水)" }],
       selectedDates,
       timeSlots: [],
+      remindMinute: null,
     };
 
     const payload = renderCreateBuilder(state);
@@ -333,6 +382,7 @@ describe("renderCreateBuilder のコンポーネント構造", () => {
     ],
     selectedDates: ["2026-07-30", "2026-08-01"],
     timeSlots: ["21:00", "23:00"],
+    remindMinute: null,
   };
 
   it("表示中の週の7日ぶんの日ボタンを value ごとに出す", () => {
@@ -466,6 +516,7 @@ describe("selectedDates の復元", () => {
       // 表示外の週の日だけを選択済みにする
       selectedDates: ["2026-08-05", "2026-08-12"],
       timeSlots: [],
+      remindMinute: null,
     };
 
     const restored = parseBuilderState(renderCreateBuilder(state));
@@ -483,6 +534,7 @@ describe("selectedDates の復元", () => {
       weekDays: [{ value: "2026-07-22", label: "7/22(水)" }],
       selectedDates: [],
       timeSlots: [],
+      remindMinute: null,
     };
 
     const payload = renderCreateBuilder(state);
@@ -514,6 +566,7 @@ describe("timeSlots の復元", () => {
       weekDays: [{ value: "2026-07-22", label: "7/22(水)" }],
       selectedDates: ["2026-07-22"],
       timeSlots: ["21:00", "22:30"],
+      remindMinute: null,
     };
 
     const restored = parseBuilderState(renderCreateBuilder(state));
@@ -532,6 +585,7 @@ describe("timeSlots の復元", () => {
       // 複数月・複数日ぶんのカレンダー(: を含まない)があっても時刻は0件
       selectedDates: ["2026-07-22", "2026-08-05", "2026-08-12"],
       timeSlots: [],
+      remindMinute: null,
     };
 
     const restored = parseBuilderState(renderCreateBuilder(state));
@@ -558,6 +612,7 @@ describe("builderStateToCreateInput", () => {
     ],
     selectedDates: ["2026-07-22", "2026-07-29"],
     timeSlots: ["21:00", "23:00"],
+    remindMinute: null,
   };
 
   it("candidateLines は selectedDates 全件を formatDateLabel で整形する(昇順)", () => {
@@ -601,6 +656,7 @@ describe("builderStateToCreateInput", () => {
       ...state,
       selectedDates: [],
       timeSlots: [],
+      remindMinute: null,
     };
 
     const input = builderStateToCreateInput(empty);
