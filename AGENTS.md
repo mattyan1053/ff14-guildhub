@@ -25,15 +25,7 @@ FF14の固定活動を中心としたDiscordコミュニティ向け運営支援
 
 ## 開発コマンド
 
-```bash
-pnpm dev        # tsx watchでBotを起動
-pnpm build      # tsconfig.build.jsonでdist/へビルド
-pnpm start      # ビルド済みアプリケーションの起動
-pnpm test       # Vitest
-pnpm lint       # Biome(format + lintチェック)
-pnpm format     # Biomeフォーマット適用
-pnpm typecheck  # tsc --noEmit
-```
+利用可能なスクリプトは `package.json` の `scripts` を参照する。
 
 コマンドは開発用composeコンテナ内で実行する(ホストにNode.js/pnpmを前提としない)。`.claude/scripts/dc.sh` がラッパーで、`bot`コンテナが起動中なら`exec`、停止中なら使い捨てコンテナで実行する:
 
